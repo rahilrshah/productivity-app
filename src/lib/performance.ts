@@ -50,7 +50,7 @@ class PerformanceMonitor {
       const fidObserver = new PerformanceObserver((list) => {
         const entries = list.getEntries()
         entries.forEach(entry => {
-          this.recordMetric('fid', entry.processingStart - entry.startTime)
+          this.recordMetric('fid', (entry as any).processingStart - entry.startTime)
         })
       })
 
@@ -66,7 +66,7 @@ class PerformanceMonitor {
         let clsScore = 0
         const entries = list.getEntries()
         entries.forEach(entry => {
-          if (entry.hadRecentInput) return
+          if ((entry as any).hadRecentInput) return
           clsScore += (entry as any).value
         })
         this.recordMetric('cls', clsScore)

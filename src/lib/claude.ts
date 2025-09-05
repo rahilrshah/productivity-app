@@ -317,8 +317,8 @@ class ClaudeClient {
     }
   }
 
-  async parseNaturalLanguageTask(text: string): Promise<Partial<Task> | null> {
-    const systemPrompt = `You are a helpful assistant that extracts structured task information from natural language.
+  async parseNaturalLanguageTask(text: string, context?: { defaultType?: string }): Promise<Partial<Task> | null> {
+    const systemPrompt = `You are a helpful assistant that extracts structured task information from natural language, with support for different task types.
     
     Extract the following information if available:
     - title: A concise, actionable task title
@@ -327,14 +327,28 @@ class ClaudeClient {
     - due_date: ISO date string if a specific time is mentioned
     - tags: Array of relevant tags based on content
     - duration_minutes: Estimated duration if mentioned
+    - task_type: One of 'course', 'project', 'club', 'todo' based on context
+    - type_metadata: Type-specific metadata object
+    
+    Task Type Detection:
+    - 'course': Academic assignments, homework, exams, readings, study sessions
+    - 'project': Work projects, personal projects, development tasks, deliverables
+    - 'club': Meetings, events, club activities, volunteer work, social events
+    - 'todo': General personal tasks, errands, health appointments, maintenance
+    
+    Type-specific metadata to extract:
+    - Course: course_code, assignment_type, semester, credits, instructor
+    - Project: project_type, methodology, phase, milestone
+    - Club: club_name, role, event_type
+    - Todo: category, location, context
     
     Return valid JSON only. If no clear task can be extracted, return null.
     
-    Examples of what to look for:
-    - Time indicators: "tomorrow", "next week", "by Friday", "in 2 hours"
-    - Priority indicators: "urgent", "important", "ASAP", "when you have time"  
-    - Duration indicators: "30 minutes", "2 hours", "quick task"
-    - Context clues for tags: "work", "personal", "shopping", "health", etc.`
+    Examples:
+    - "CS101 homework due Friday" → course task with course_code: "CS101", assignment_type: "homework"
+    - "Sprint planning meeting" → project task with methodology: "agile", phase: "planning"
+    - "Student council meeting" → club task with club_name: "student council", event_type: "meeting"
+    - "Pick up groceries" → todo task with category: "errands", location: "store"`
 
     try {
       const response = await this.chat([
@@ -354,21 +368,143 @@ class ClaudeClient {
           return parsed
         }
         
-        // Fallback: extract basic task info
+        // Fallback: extract basic task info with default type
         return {
           title: text.slice(0, 100),
           content: text.length > 100 ? text : undefined,
-          priority: 5
+          priority: 5,
+          task_type: (context?.defaultType as any) || 'todo',
+          type_metadata: { category: 'general' }
         }
       } catch (e) {
         return {
           title: text.slice(0, 100),
-          priority: 5
+          priority: 5,
+          task_type: (context?.defaultType as any) || 'todo',
+          type_metadata: { category: 'general' }
         }
       }
     } catch (error) {
       console.error('Error parsing natural language task:', error)
       return null
+    }
+  }
+
+  async generateTypeSpecificSuggestions(taskType: string, context: string, existingTasks: Task[] = []): Promise<string[]> {
+    const existingTaskTitles = existingTasks.filter(t => t.task_type === taskType).map(t => t.title)
+    
+    const typePrompts = {
+      course: `You are an academic advisor helping with course task suggestions. Based on the context provided, suggest 3-5 specific academic tasks.
+      
+      Focus on:
+      - Assignment types (homework, essays, projects, readings)
+      - Study planning and preparation
+      - Course-specific activities
+      - Academic deadlines and scheduling`,
+      
+      project: `You are a project manager helping with project task suggestions. Based on the context provided, suggest 3-5 specific project tasks.
+      
+      Focus on:
+      - Development phases (planning, design, implementation, testing)
+      - Team coordination and communication
+      - Technical deliverables and milestones
+      - Project management activities`,
+      
+      club: `You are an activities coordinator helping with club/organization task suggestions. Based on the context provided, suggest 3-5 specific club activities.
+      
+      Focus on:
+      - Meeting preparation and organization
+      - Event planning and coordination
+      - Member engagement activities
+      - Administrative and leadership tasks`,
+      
+      todo: `You are a personal productivity assistant helping with general task suggestions. Based on the context provided, suggest 3-5 specific personal tasks.
+      
+      Focus on:
+      - Personal maintenance and health
+      - Errands and daily activities
+      - Home and life organization
+      - Personal development and learning`
+    }
+
+    const systemPrompt = typePrompts[taskType as keyof typeof typePrompts] || typePrompts.todo
+    
+    const contextWithExisting = existingTaskTitles.length > 0 
+      ? `Context: ${context}\n\nExisting ${taskType} tasks to avoid duplicating: ${existingTaskTitles.join(', ')}`
+      : `Context: ${context}`
+
+    try {
+      const response = await this.chat([
+        { role: 'user', content: contextWithExisting }
+      ], { 
+        system: systemPrompt + '\n\nReturn a JSON array of 3-5 specific, actionable task titles.',
+        max_tokens: 1000 
+      }) as ClaudeResponse
+
+      const content = response.content[0].text.trim()
+      
+      try {
+        const jsonMatch = content.match(/\[[^\]]*\]/g)
+        if (jsonMatch) {
+          const suggestions = JSON.parse(jsonMatch[0])
+          return Array.isArray(suggestions) ? suggestions : []
+        }
+        return []
+      } catch (e) {
+        return []
+      }
+    } catch (error) {
+      console.error('Error generating type-specific suggestions:', error)
+      return []
+    }
+  }
+
+  async analyzeMultiTypeProductivity(tasks: Task[], contexts: { course?: any, project?: any, club?: any, personal?: any } = {}): Promise<string> {
+    const tasksByType = {
+      course: tasks.filter(t => t.task_type === 'course'),
+      project: tasks.filter(t => t.task_type === 'project'), 
+      club: tasks.filter(t => t.task_type === 'club'),
+      todo: tasks.filter(t => t.task_type === 'todo')
+    }
+
+    const analysis = Object.entries(tasksByType).map(([type, typeTasks]) => ({
+      type,
+      total: typeTasks.length,
+      completed: typeTasks.filter(t => t.status === 'completed').length,
+      overdue: typeTasks.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== 'completed').length,
+      high_priority: typeTasks.filter(t => t.priority >= 8).length
+    }))
+
+    const systemPrompt = `You are a productivity expert analyzing a multi-domain task management system with support for courses, projects, clubs, and personal todos.
+    
+    Provide insights on:
+    1. Cross-domain workload balance and potential conflicts
+    2. Type-specific productivity patterns and recommendations
+    3. Priority management across different contexts
+    4. Schedule optimization opportunities
+    5. Integration strategies for better workflow
+    
+    Be specific, constructive, and focus on actionable multi-domain advice that considers the different nature of academic, professional, social, and personal commitments.`
+
+    const userMessage = `Analyze my multi-type productivity:
+
+Task Distribution:
+${analysis.map(a => `${a.type.charAt(0).toUpperCase() + a.type.slice(1)}: ${a.total} tasks (${a.completed} completed, ${a.overdue} overdue, ${a.high_priority} high priority)`).join('\n')}
+
+Additional Context:
+${JSON.stringify(contexts, null, 2)}`
+
+    try {
+      const response = await this.chat([
+        { role: 'user', content: userMessage }
+      ], { 
+        system: systemPrompt,
+        max_tokens: 2000 
+      }) as ClaudeResponse
+
+      return response.content[0].text
+    } catch (error) {
+      throw new Error(`Failed to analyze multi-type productivity: ${error}`)
     }
   }
 }
@@ -393,9 +529,11 @@ export function useClaude() {
     setApiKey: (key: string) => client.setApiKey(key),
     clearApiKey: () => client.clearApiKey(),
     analyzeProductivity: (tasks: Task[]) => client.analyzeProductivity(tasks),
+    analyzeMultiTypeProductivity: (tasks: Task[], contexts?: any) => client.analyzeMultiTypeProductivity(tasks, contexts),
     suggestBreakdown: (title: string, description?: string) => client.suggestTaskBreakdown(title, description),
     generateSuggestions: (context: string, existing?: Task[]) => client.generateTaskSuggestions(context, existing),
+    generateTypeSpecificSuggestions: (taskType: string, context: string, existing?: Task[]) => client.generateTypeSpecificSuggestions(taskType, context, existing),
     optimizePriorities: (tasks: Task[]) => client.optimizeTaskPriorities(tasks),
-    parseTask: (text: string) => client.parseNaturalLanguageTask(text),
+    parseTask: (text: string, context?: { defaultType?: string }) => client.parseNaturalLanguageTask(text, context),
   }
 }

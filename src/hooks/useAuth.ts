@@ -16,7 +16,6 @@ export function useAuth() {
     loading: authState.loading,
     initialized: authState.initialized,
     isAuthenticated: authService.isAuthenticated(),
-    isEncryptionReady: authService.isEncryptionReady(),
     signIn: authService.signIn.bind(authService),
     signUp: authService.signUp.bind(authService),
     signOut: authService.signOut.bind(authService),

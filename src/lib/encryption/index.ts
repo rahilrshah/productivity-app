@@ -194,23 +194,38 @@ export class EncryptionService {
   }
 
   /**
-   * Derive multiple keys from master key for different purposes
+   * Derive multiple keys from master key for different purposes using PBKDF2
    */
   static async deriveKeys(masterKey: CryptoKey, purposes: string[]): Promise<Record<string, CryptoKey>> {
     const keys: Record<string, CryptoKey> = {}
     
+    // First export the master key to get the raw bytes
+    const rawMasterKey = await crypto.subtle.exportKey('raw', masterKey)
+    
     for (const purpose of purposes) {
-      const info = new TextEncoder().encode(purpose)
+      // Use purpose as salt for PBKDF2
+      const purposeBytes = new TextEncoder().encode(purpose)
+      const salt = new Uint8Array(32)
+      salt.set(purposeBytes.slice(0, Math.min(purposeBytes.length, 32)))
       
-      // Using HKDF to derive purpose-specific keys
+      // Create a new key from raw bytes for PBKDF2
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        rawMasterKey,
+        { name: 'PBKDF2' },
+        false,
+        ['deriveBits']
+      )
+      
+      // Derive key using PBKDF2
       const derivedKeyMaterial = await crypto.subtle.deriveBits(
         {
-          name: 'HKDF',
-          hash: 'SHA-256',
-          salt: new Uint8Array(32), // Empty salt for simplicity
-          info: info
+          name: 'PBKDF2',
+          salt: salt,
+          iterations: 10000, // Lower iterations for derived keys
+          hash: 'SHA-256'
         },
-        masterKey,
+        keyMaterial,
         256 // 256 bits for AES-256
       )
       

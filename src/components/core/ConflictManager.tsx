@@ -205,6 +205,8 @@ export function ConflictManager({ onConflictResolved }: ConflictManagerProps) {
       dependencies: [],
       position: 0,
       version: 1,
+      task_type: 'todo',
+      type_metadata: { category: 'general' },
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }

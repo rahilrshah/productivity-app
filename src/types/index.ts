@@ -30,6 +30,51 @@ export interface Task {
   created_at: string
   updated_at: string
   deleted_at?: string
+  // New multi-type fields
+  task_type: TaskType
+  type_metadata: TaskMetadata
+}
+
+export type TaskType = 'course' | 'project' | 'club' | 'todo'
+
+export type TaskMetadata = CourseMetadata | ProjectMetadata | ClubMetadata | TodoMetadata
+
+export interface CourseMetadata {
+  course_code: string
+  semester: string
+  assignment_type: string
+  credits: number
+  instructor?: string
+  syllabus_url?: string
+  submission_method?: string
+  weight_percentage?: number
+}
+
+export interface ProjectMetadata {
+  project_type: 'personal' | 'work' | 'side-project'
+  methodology: string
+  phase: string
+  milestone?: string
+  repository_url?: string
+  team_members?: string[]
+  client?: string
+  budget?: number
+}
+
+export interface ClubMetadata {
+  club_name: string
+  role: string
+  event_type?: string
+  meeting_frequency?: string
+  meeting_location?: string
+  required_attendance?: boolean
+  leadership_position?: boolean
+}
+
+export interface TodoMetadata {
+  category?: string
+  location?: string
+  context?: string
 }
 
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'archived'
@@ -72,6 +117,28 @@ export interface CreateTaskDTO {
   due_date?: string
   parent_id?: string
   tags?: string[]
+  task_type: TaskType
+  type_metadata: TaskMetadata
+}
+
+export interface CreateCourseTaskDTO extends Omit<CreateTaskDTO, 'type_metadata' | 'task_type'> {
+  task_type: 'course'
+  type_metadata: CourseMetadata
+}
+
+export interface CreateProjectTaskDTO extends Omit<CreateTaskDTO, 'type_metadata' | 'task_type'> {
+  task_type: 'project'
+  type_metadata: ProjectMetadata
+}
+
+export interface CreateClubTaskDTO extends Omit<CreateTaskDTO, 'type_metadata' | 'task_type'> {
+  task_type: 'club'
+  type_metadata: ClubMetadata
+}
+
+export interface CreateTodoTaskDTO extends Omit<CreateTaskDTO, 'type_metadata' | 'task_type'> {
+  task_type: 'todo'
+  type_metadata: TodoMetadata
 }
 
 export interface UpdateTaskDTO {
@@ -117,6 +184,69 @@ export interface AIContext {
   task_history: Task[]
   current_date: string
   dependency_graph: Record<string, string[]>
+  // Multi-type context
+  course_context?: CourseContext
+  project_context?: ProjectContext
+  club_context?: ClubContext
+  personal_context?: PersonalContext
+}
+
+export interface CourseContext {
+  current_semester: string
+  courses: Array<{
+    code: string
+    name: string
+    credits: number
+    schedule: string
+    syllabus_data?: any
+  }>
+  academic_calendar: Array<{
+    event: string
+    date: string
+    type: 'exam' | 'assignment' | 'break' | 'semester'
+  }>
+}
+
+export interface ProjectContext {
+  active_projects: Array<{
+    id: string
+    name: string
+    methodology: string
+    current_phase: string
+    team_size?: number
+    deadline?: string
+  }>
+  work_schedule: {
+    work_hours: string
+    availability: string[]
+    time_zone: string
+  }
+}
+
+export interface ClubContext {
+  memberships: Array<{
+    club_name: string
+    role: string
+    meeting_schedule: string
+    responsibilities: string[]
+  }>
+  upcoming_events: Array<{
+    event: string
+    date: string
+    club: string
+    required: boolean
+  }>
+}
+
+export interface PersonalContext {
+  daily_schedule: {
+    wake_time: string
+    sleep_time: string
+    work_hours: string
+    break_preferences: string[]
+  }
+  locations: string[]
+  recurring_commitments: string[]
 }
 
 export interface ComponentSpec {

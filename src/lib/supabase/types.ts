@@ -46,6 +46,8 @@ export type Database = {
           position: number
           version: number
           version_history: string | null
+          task_type: 'course' | 'project' | 'club' | 'todo'
+          type_metadata: Record<string, any>
           created_at: string
           updated_at: string
           deleted_at: string | null
@@ -71,6 +73,8 @@ export type Database = {
           position?: number
           version?: number
           version_history?: string | null
+          task_type?: 'course' | 'project' | 'club' | 'todo'
+          type_metadata?: Record<string, any>
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
@@ -96,6 +100,8 @@ export type Database = {
           position?: number
           version?: number
           version_history?: string | null
+          task_type?: 'course' | 'project' | 'club' | 'todo'
+          type_metadata?: Record<string, any>
           created_at?: string
           updated_at?: string
           deleted_at?: string | null

@@ -215,8 +215,8 @@ class AutomationEngine {
   ): boolean {
     if (!condition.field || !condition.operator) return true
 
-    const currentValue = task[condition.field]
-    const previousValue = previousTask?.[condition.field]
+    const currentValue = task[condition.field as keyof Task]
+    const previousValue = previousTask?.[condition.field as keyof Task]
 
     switch (condition.operator) {
       case 'equals':
@@ -227,10 +227,10 @@ class AutomationEngine {
 
       case 'contains':
         if (typeof currentValue === 'string') {
-          return currentValue.includes(condition.value)
+          return currentValue.includes(condition.value as string)
         }
         if (Array.isArray(currentValue)) {
-          return currentValue.includes(condition.value)
+          return (currentValue as any[]).includes(condition.value)
         }
         return false
 
@@ -379,12 +379,14 @@ class AutomationEngine {
         default:
           return {
             success: false,
+            description: `Unknown action type: ${action.type}`,
             error: `Unknown action type: ${action.type}`
           }
       }
     } catch (error) {
       return {
         success: false,
+        description: 'Action execution failed',
         error: error instanceof Error ? error.message : 'Action execution failed'
       }
     }

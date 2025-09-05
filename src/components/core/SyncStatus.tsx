@@ -7,7 +7,7 @@ import { getCRDTEngine } from '@/lib/crdt'
 import { 
   Wifi, 
   WifiOff, 
-  Sync, 
+  RotateCw as Sync, 
   AlertTriangle,
   CheckCircle,
   Clock

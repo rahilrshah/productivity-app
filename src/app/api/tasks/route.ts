@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
+    const task_type = searchParams.get('task_type')
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
     const search = searchParams.get('search')
@@ -29,6 +30,10 @@ export async function GET(request: NextRequest) {
 
     if (status) {
       query = query.eq('status', status)
+    }
+
+    if (task_type) {
+      query = query.eq('task_type', task_type)
     }
 
     if (search) {
@@ -59,7 +64,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { title, content, priority, due_date, tags, parent_id } = body
+    const { title, content, priority, due_date, tags, parent_id, task_type, type_metadata } = body
 
     if (!title) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 })
@@ -84,7 +89,9 @@ export async function POST(request: NextRequest) {
       tags: tags || [],
       parent_id: parent_id || null,
       position: nextPosition,
-      status: 'pending'
+      status: 'pending',
+      task_type: task_type || 'todo',
+      type_metadata: type_metadata || {}
     }
 
     const { data: task, error } = await supabase

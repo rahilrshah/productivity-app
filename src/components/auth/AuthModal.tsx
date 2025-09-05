@@ -8,19 +8,17 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/hooks/useAuth'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { Eye, EyeOff, Lock } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 
 export function AuthModal() {
   const { signIn, signUp } = useAuth()
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
-  const [showUserPassword, setShowUserPassword] = useState(false)
   const [error, setError] = useState<string>('')
 
   const [formData, setFormData] = useState({
     email: '',
     password: '',
-    userPassword: '',
     confirmPassword: ''
   })
 
@@ -34,13 +32,13 @@ export function AuthModal() {
     setLoading(true)
     setError('')
 
-    if (!formData.email || !formData.password || !formData.userPassword) {
-      setError('All fields are required')
+    if (!formData.email || !formData.password) {
+      setError('Email and password are required')
       setLoading(false)
       return
     }
 
-    const result = await signIn(formData.email, formData.password, formData.userPassword)
+    const result = await signIn(formData.email, formData.password)
     
     if (!result.success) {
       setError(result.error || 'Sign in failed')
@@ -54,25 +52,25 @@ export function AuthModal() {
     setLoading(true)
     setError('')
 
-    if (!formData.email || !formData.password || !formData.userPassword || !formData.confirmPassword) {
+    if (!formData.email || !formData.password || !formData.confirmPassword) {
       setError('All fields are required')
       setLoading(false)
       return
     }
 
-    if (formData.userPassword !== formData.confirmPassword) {
-      setError('Encryption passwords do not match')
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match')
       setLoading(false)
       return
     }
 
-    if (formData.userPassword.length < 8) {
-      setError('Encryption password must be at least 8 characters')
+    if (formData.password.length < 8) {
+      setError('Password must be at least 8 characters')
       setLoading(false)
       return
     }
 
-    const result = await signUp(formData.email, formData.password, formData.userPassword)
+    const result = await signUp(formData.email, formData.password)
     
     if (!result.success) {
       setError(result.error || 'Sign up failed')
@@ -88,7 +86,7 @@ export function AuthModal() {
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl text-center">ProductivityAI</CardTitle>
           <CardDescription className="text-center">
-            Sign in to your secure, AI-powered productivity system
+            Sign in to your personal AI-powered productivity system
           </CardDescription>
         </CardHeader>
         
@@ -136,34 +134,6 @@ export function AuthModal() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="userPassword">
-                    <Lock className="inline h-4 w-4 mr-1" />
-                    Encryption Password
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="userPassword"
-                      type={showUserPassword ? 'text' : 'password'}
-                      placeholder="Enter your encryption password"
-                      value={formData.userPassword}
-                      onChange={(e) => handleInputChange('userPassword', e.target.value)}
-                      disabled={loading}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                      onClick={() => setShowUserPassword(!showUserPassword)}
-                    >
-                      {showUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    This password encrypts your data and cannot be recovered if lost.
-                  </p>
-                </div>
 
                 {error && (
                   <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
@@ -182,7 +152,7 @@ export function AuthModal() {
                     size="sm"
                     onClick={() => {
                       setError('')
-                      setFormData(prev => ({ ...prev, password: '', userPassword: '' }))
+                      setFormData(prev => ({ ...prev, password: '' }))
                     }}
                   >
                     Forgot your password?
@@ -229,44 +199,15 @@ export function AuthModal() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="signup-userPassword">
-                    <Lock className="inline h-4 w-4 mr-1" />
-                    Encryption Password
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="signup-userPassword"
-                      type={showUserPassword ? 'text' : 'password'}
-                      placeholder="Create encryption password"
-                      value={formData.userPassword}
-                      onChange={(e) => handleInputChange('userPassword', e.target.value)}
-                      disabled={loading}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                      onClick={() => setShowUserPassword(!showUserPassword)}
-                    >
-                      {showUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPassword">Confirm Encryption Password</Label>
+                  <Label htmlFor="confirmPassword">Confirm Password</Label>
                   <Input
                     id="confirmPassword"
                     type="password"
-                    placeholder="Confirm encryption password"
+                    placeholder="Confirm your password"
                     value={formData.confirmPassword}
                     onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                     disabled={loading}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Your data is encrypted with this password. Keep it safe - it cannot be recovered if lost.
-                  </p>
                 </div>
 
                 {error && (

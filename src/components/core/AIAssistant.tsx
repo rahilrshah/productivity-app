@@ -33,7 +33,7 @@ interface AIAssistantProps {
   onTaskUpdate?: (id: string, updates: Partial<Task>) => void
 }
 
-export function AIAssistant({ tasks, onTaskCreate, onTaskUpdate }: AIAssistantProps) {
+export function AIAssistant({ tasks, onTaskCreate: _onTaskCreate, onTaskUpdate: _onTaskUpdate }: AIAssistantProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)

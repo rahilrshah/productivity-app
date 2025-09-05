@@ -9,7 +9,8 @@ export class SyncService {
   private userId: string | null = null
 
   private constructor() {
-    this.deviceId = this.getOrCreateDeviceId()
+    // Initialize deviceId as empty, will be set during initialize()
+    this.deviceId = ''
   }
 
   static getInstance(): SyncService {
@@ -24,6 +25,9 @@ export class SyncService {
    */
   async initialize(userId: string): Promise<void> {
     this.userId = userId
+    
+    // Set device ID now that we're in client context
+    this.deviceId = this.getOrCreateDeviceId()
     
     // Initialize IndexedDB
     await indexedDBService.initialize()
@@ -352,6 +356,12 @@ export class SyncService {
   }
 
   private getOrCreateDeviceId(): string {
+    // Check if we're in a browser environment
+    if (typeof window === 'undefined') {
+      // Server-side: return a temporary ID that will be replaced on client
+      return 'temp-server-id'
+    }
+    
     let deviceId = localStorage.getItem('device_id')
     if (!deviceId) {
       deviceId = crypto.randomUUID()
@@ -361,6 +371,9 @@ export class SyncService {
   }
 
   private startPeriodicSync(): void {
+    // Only start sync on client side
+    if (typeof window === 'undefined') return
+    
     // Sync every 5 minutes when online
     setInterval(() => {
       if (navigator.onLine && !this.syncInProgress) {

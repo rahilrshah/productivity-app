@@ -172,7 +172,7 @@ class CRDTEngine {
         }
         // For other fields, use timestamp to decide
         else if (operation.timestamp > new Date(existingTask.updated_at || 0).getTime()) {
-          merged[key] = operation.payload[key]
+          (merged as any)[key] = (operation.payload as any)[key]
         }
       })
     }

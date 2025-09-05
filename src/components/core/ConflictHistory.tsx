@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { CRDTOperation } from '@/lib/crdt'
-import { Task } from '@/types'
 import { 
   History,
   Search,

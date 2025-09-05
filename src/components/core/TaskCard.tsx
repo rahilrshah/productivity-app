@@ -15,6 +15,10 @@ import {
   Trash2,
   Edit,
   PlayCircle,
+  BookOpen,
+  Briefcase,
+  Users,
+  ListTodo,
 } from 'lucide-react'
 
 interface TaskCardProps {
@@ -43,6 +47,20 @@ const priorityColors = {
   high: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
 }
 
+const taskTypeIcons = {
+  course: BookOpen,
+  project: Briefcase,
+  club: Users,
+  todo: ListTodo,
+}
+
+const taskTypeColors = {
+  course: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
+  project: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+  club: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+  todo: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+}
+
 function getPriorityLevel(priority: number): 'low' | 'medium' | 'high' {
   if (priority <= 3) return 'low'
   if (priority <= 7) return 'medium'
@@ -54,9 +72,88 @@ function getPriorityLabel(priority: number): string {
   return `${level.charAt(0).toUpperCase() + level.slice(1)} (${priority})`
 }
 
+function renderTaskMetadata(task: Task): JSX.Element | null {
+  if (!task.type_metadata) return null
+
+  switch (task.task_type) {
+    case 'course':
+      const courseData = task.type_metadata as any
+      return (
+        <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
+          <span>{courseData.course_code}</span>
+          <span>•</span>
+          <span>{courseData.assignment_type}</span>
+          {courseData.semester && (
+            <>
+              <span>•</span>
+              <span>{courseData.semester}</span>
+            </>
+          )}
+        </div>
+      )
+
+    case 'project':
+      const projectData = task.type_metadata as any
+      return (
+        <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
+          <span>{projectData.methodology}</span>
+          <span>•</span>
+          <span>{projectData.phase}</span>
+          {projectData.milestone && (
+            <>
+              <span>•</span>
+              <span>{projectData.milestone}</span>
+            </>
+          )}
+        </div>
+      )
+
+    case 'club':
+      const clubData = task.type_metadata as any
+      return (
+        <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
+          <span>{clubData.club_name}</span>
+          <span>•</span>
+          <span>{clubData.role}</span>
+          {clubData.event_type && (
+            <>
+              <span>•</span>
+              <span>{clubData.event_type}</span>
+            </>
+          )}
+        </div>
+      )
+
+    case 'todo':
+      const todoData = task.type_metadata as any
+      if (!todoData.category && !todoData.location && !todoData.context) return null
+      return (
+        <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
+          {todoData.category && <span>{todoData.category}</span>}
+          {todoData.location && (
+            <>
+              {todoData.category && <span>•</span>}
+              <span>{todoData.location}</span>
+            </>
+          )}
+          {todoData.context && (
+            <>
+              {(todoData.category || todoData.location) && <span>•</span>}
+              <span>{todoData.context}</span>
+            </>
+          )}
+        </div>
+      )
+
+    default:
+      return null
+  }
+}
+
 export function TaskCard({ task, onUpdate, onDelete }: TaskCardProps) {
   const StatusIcon = statusIcons[task.status]
   const priorityLevel = getPriorityLevel(task.priority)
+  const TaskTypeIcon = taskTypeIcons[task.task_type || 'todo']
   
   const toggleStatus = () => {
     const statusFlow: Record<TaskStatus, TaskStatus> = {
@@ -119,10 +216,22 @@ export function TaskCard({ task, onUpdate, onDelete }: TaskCardProps) {
                   />
                 </div>
               )}
+              {renderTaskMetadata(task) && (
+                <div className="mt-1">
+                  {renderTaskMetadata(task)}
+                </div>
+              )}
             </div>
           </div>
           
           <div className="flex items-center space-x-1">
+            <Badge
+              variant="outline"
+              className={cn('text-xs flex items-center gap-1', taskTypeColors[task.task_type || 'todo'])}
+            >
+              <TaskTypeIcon className="h-3 w-3" />
+              {task.task_type || 'todo'}
+            </Badge>
             <Badge
               variant="secondary"
               className={cn('text-xs', priorityColors[priorityLevel])}

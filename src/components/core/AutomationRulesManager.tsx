@@ -38,7 +38,7 @@ export function AutomationRulesManager() {
   const [rules, setRules] = useState<AutomationRule[]>([])
   const [executions, setExecutions] = useState<AutomationExecution[]>([])
   const [showCreateForm, setShowCreateForm] = useState(false)
-  const [editingRule, setEditingRule] = useState<AutomationRule | null>(null)
+  const [_editingRule, setEditingRule] = useState<AutomationRule | null>(null)
   const [selectedTab, setSelectedTab] = useState<'rules' | 'history' | 'templates' | 'analytics'>('rules')
 
   const automation = getAutomationEngine()
@@ -71,11 +71,6 @@ export function AutomationRulesManager() {
     setShowCreateForm(false)
   }
 
-  const handleUpdateRule = (rule: AutomationRule) => {
-    automation.updateRule(rule.id, rule)
-    loadData()
-    setEditingRule(null)
-  }
 
   const handleDeleteRule = (ruleId: string) => {
     if (confirm('Are you sure you want to delete this automation rule?')) {

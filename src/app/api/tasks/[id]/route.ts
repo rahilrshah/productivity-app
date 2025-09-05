@@ -68,6 +68,8 @@ export async function PUT(
     if (body.due_date !== undefined) updates.due_date = body.due_date
     if (body.tags !== undefined) updates.tags = body.tags
     if (body.position !== undefined) updates.position = body.position
+    if (body.task_type !== undefined) updates.task_type = body.task_type
+    if (body.type_metadata !== undefined) updates.type_metadata = body.type_metadata
 
     updates.updated_at = new Date().toISOString()
 
