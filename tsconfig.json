@@ -20,7 +20,8 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "types": [
-      "node"
+      "node",
+      "@testing-library/jest-dom"
     ],
     "allowJs": true,
     "forceConsistentCasingInFileNames": true,

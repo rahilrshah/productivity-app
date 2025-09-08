@@ -6,10 +6,11 @@ import { ScheduleView } from '@/components/core/ScheduleView'
 import { UnifiedDashboard } from '@/components/core/UnifiedDashboard'
 import { AcademicCalendar } from '@/components/core/AcademicCalendar'
 import { AIAssistant } from '@/components/core/AIAssistant'
+import TableBuilder from '@/components/core/TableBuilder'
 import { Header } from '@/components/shared/Header'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
-import { Calendar, List, GraduationCap } from 'lucide-react'
+import { Calendar, List, GraduationCap, Settings } from 'lucide-react'
 import { Task } from '@/types'
 
 function ScheduleViewWrapper() {
@@ -45,7 +46,7 @@ function ScheduleViewWrapper() {
 }
 
 export default function HomePage() {
-  const [currentView, setCurrentView] = useState<'dashboard' | 'tasks' | 'schedule' | 'academic'>('dashboard')
+  const [currentView, setCurrentView] = useState<'dashboard' | 'tasks' | 'schedule' | 'academic' | 'table-builder'>('dashboard')
   const [allTasks, setAllTasks] = useState<Task[]>([])
 
   // Fetch tasks for AI assistant
@@ -76,13 +77,15 @@ export default function HomePage() {
                 <h1 className="text-3xl font-bold tracking-tight">
                   {currentView === 'dashboard' ? 'Productivity Dashboard' : 
                    currentView === 'tasks' ? 'Your Tasks' : 
-                   currentView === 'schedule' ? 'Schedule View' : 'Academic Calendar'}
+                   currentView === 'schedule' ? 'Schedule View' : 
+                   currentView === 'academic' ? 'Academic Calendar' : 'Custom Task Types'}
                 </h1>
                 <p className="text-muted-foreground mt-2">
                   {currentView === 'dashboard' ? 'Unified view of all your courses, projects, clubs, and todos' :
                    currentView === 'tasks' ? 'Manage your tasks with AI-powered assistance' :
                    currentView === 'schedule' ? 'Your optimized daily schedule' :
-                   'Academic calendar with semester planning and course management'}
+                   currentView === 'academic' ? 'Academic calendar with semester planning and course management' :
+                   'Create custom task types with your own fields and settings'}
                 </p>
               </div>
               
@@ -118,6 +121,14 @@ export default function HomePage() {
                 >
                   <GraduationCap className="h-4 w-4 mr-2" />
                   Academic
+                </Button>
+                <Button
+                  variant={currentView === 'table-builder' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setCurrentView('table-builder')}
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  Table Builder
                 </Button>
               </div>
             </div>
@@ -156,6 +167,14 @@ export default function HomePage() {
                   }
                   setAllTasks(prev => [...prev, newTask])
                 }}
+              />
+            ) : currentView === 'table-builder' ? (
+              <TableBuilder 
+                onSave={(schema) => {
+                  console.log('Schema saved:', schema)
+                  // You could show a success message here
+                }}
+                onCancel={() => setCurrentView('dashboard')}
               />
             ) : (
               <ScheduleViewWrapper />

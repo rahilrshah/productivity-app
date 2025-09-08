@@ -1,263 +1,183 @@
-# AI-Powered Personal Productivity System
+# Supabase CLI
 
-A free, self-hosted, AI-powered productivity system that rivals commercial solutions like Notion while maintaining zero operational costs. Built with privacy-first architecture, local AI integration, and seamless cross-platform sync.
+[![Coverage Status](https://coveralls.io/repos/github/supabase/cli/badge.svg?branch=main)](https://coveralls.io/github/supabase/cli?branch=main) [![Bitbucket Pipelines](https://img.shields.io/bitbucket/pipelines/supabase-cli/setup-cli/master?style=flat-square&label=Bitbucket%20Canary)](https://bitbucket.org/supabase-cli/setup-cli/pipelines) [![Gitlab Pipeline Status](https://img.shields.io/gitlab/pipeline-status/sweatybridge%2Fsetup-cli?label=Gitlab%20Canary)
+](https://gitlab.com/sweatybridge/setup-cli/-/pipelines)
 
-## 🌟 Key Features
+[Supabase](https://supabase.io) is an open source Firebase alternative. We're building the features of Firebase using enterprise-grade open source tools.
 
-### Zero Cost & Privacy-First
-- **No subscription fees** - Self-hosted with zero operational costs
-- **Client-side encryption** - All data encrypted with AES-256-GCM before leaving your device
-- **Local LLM integration** - AI processing without sending data to external services
-- **Zero-knowledge architecture** - We can't read your data even if we wanted to
+This repository contains all the functionality for Supabase CLI.
 
-### Core Functionality
-- **Rich Task Management** - Create, organize, and track tasks with rich text content
-- **AI-Powered Assistance** - Local LLM for task parsing, prioritization, and suggestions
-- **Smart Scheduling** - Automated scheduling with calendar integration
-- **Real-time Sync** - CRDT-based conflict resolution across all devices
-- **Offline-First** - Full functionality without internet connection
+- [x] Running Supabase locally
+- [x] Managing database migrations
+- [x] Creating and deploying Supabase Functions
+- [x] Generating types directly from your database schema
+- [x] Making authenticated HTTP requests to [Management API](https://supabase.com/docs/reference/api/introduction)
 
-### Cross-Platform
-- **Progressive Web App** - Native-like experience on all platforms
-- **Responsive Design** - Optimized for desktop, tablet, and mobile
-- **Dark/Light Mode** - Automatic theme switching with system sync
+## Getting started
 
-## 🚀 Tech Stack
+### Install the CLI
 
-### Frontend
-- **Next.js 14** - React framework with app router
-- **TypeScript** - Type-safe development
-- **Tailwind CSS** - Utility-first styling
-- **shadcn/ui** - High-quality component library
-- **Tiptap 2.0** - Rich text editor
-- **Zustand** - State management
+Available via [NPM](https://www.npmjs.com) as dev dependency. To install:
 
-### Backend
-- **Next.js API Routes** - Serverless API endpoints
-- **Supabase** - PostgreSQL database with real-time features
-- **Vercel Edge Functions** - Global edge deployment
-
-### AI/ML
-- **Ollama** - Local LLM runtime
-- **Mistral-7B** - Recommended local model
-- **Claude API** - Optional advanced AI features
-
-### Security & Sync
-- **AES-256-GCM** - Client-side encryption
-- **PBKDF2** - Key derivation with high iteration count
-- **CRDT** - Conflict-free replicated data types for sync
-- **IndexedDB** - Local storage with encryption
-
-## 📦 Quick Start
-
-### Prerequisites
-- Node.js 20 or higher
-- PostgreSQL database (Supabase recommended)
-- (Optional) Ollama for local AI features
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/productivity-app.git
-   cd productivity-app
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Set up environment variables**
-   ```bash
-   cp .env.example .env.local
-   ```
-   
-   Fill in your Supabase credentials and other configuration:
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-   ```
-
-4. **Set up the database**
-   
-   Apply the database migrations in Supabase:
-   ```sql
-   -- Copy and run the SQL from supabase/migrations/20240101000000_initial_schema.sql
-   ```
-
-5. **Start the development server**
-   ```bash
-   npm run dev
-   ```
-
-6. **Open your browser**
-   
-   Navigate to [http://localhost:3000](http://localhost:3000)
-
-### Optional: Local AI Setup
-
-1. **Install Ollama**
-   ```bash
-   curl -fsSL https://ollama.ai/install.sh | sh
-   ```
-
-2. **Download Mistral-7B model**
-   ```bash
-   ollama pull mistral:7b-instruct
-   ```
-
-3. **Update environment**
-   ```env
-   OLLAMA_BASE_URL=http://localhost:11434
-   ```
-
-## 🔧 Development
-
-### Project Structure
-
-```
-src/
-├── app/                    # Next.js app router
-├── components/            # React components
-│   ├── core/             # Task management components
-│   ├── shared/           # Shared UI components
-│   └── ui/               # Base UI components
-├── hooks/                # Custom React hooks
-├── lib/                  # Utility libraries
-│   ├── auth/            # Authentication service
-│   ├── encryption/      # Client-side encryption
-│   ├── storage/         # IndexedDB integration
-│   ├── supabase/        # Database client
-│   └── sync/            # Sync service
-└── types/               # TypeScript type definitions
+```bash
+npm i supabase --save-dev
 ```
 
-### Available Scripts
+To install the beta release channel:
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
-- `npm run type-check` - Run TypeScript checks
+```bash
+npm i supabase@beta --save-dev
+```
 
-### Development Guidelines
+When installing with yarn 4, you need to disable experimental fetch with the following nodejs config.
 
-- **Code Style**: Follow TypeScript and React best practices
-- **Components**: Use functional components with hooks
-- **Styling**: Use Tailwind CSS utility classes
-- **State**: Use Zustand for global state, React hooks for local state
-- **Testing**: Write tests for critical functionality
-- **Security**: Never log sensitive data, always encrypt before storage
+```
+NODE_OPTIONS=--no-experimental-fetch yarn add supabase
+```
 
-## 🔐 Security & Privacy
+> **Note**
+For Bun versions below v1.0.17, you must add `supabase` as a [trusted dependency](https://bun.sh/guides/install/trusted) before running `bun add -D supabase`.
 
-### Client-Side Encryption
-All sensitive data is encrypted client-side before being stored or transmitted:
-- **Master Key**: Derived from user password using PBKDF2 (175,000 iterations)
-- **Purpose-Specific Keys**: Separate keys for tasks, settings, AI context
-- **Device Keys**: Local encryption for offline storage
-- **Key Rotation**: Automatic key rotation for enhanced security
+<details>
+  <summary><b>macOS</b></summary>
 
-### Zero-Knowledge Architecture
-- Passwords never leave your device
-- Encrypted data is meaningless without your key
-- Even database administrators can't read your tasks
-- AI processing happens locally when possible
+  Available via [Homebrew](https://brew.sh). To install:
 
-## 📱 PWA Features
+  ```sh
+  brew install supabase/tap/supabase
+  ```
 
-The app works as a Progressive Web App with:
-- **Offline Functionality**: Full task management without internet
-- **App-like Experience**: Install on any device like a native app
-- **Background Sync**: Changes sync automatically when online
-- **Push Notifications**: Task reminders and deadline alerts
-- **Cross-Platform**: Same experience on desktop and mobile
+  To install the beta release channel:
+  
+  ```sh
+  brew install supabase/tap/supabase-beta
+  brew link --overwrite supabase-beta
+  ```
+  
+  To upgrade:
 
-## 🤖 AI Features
+  ```sh
+  brew upgrade supabase
+  ```
+</details>
 
-### Local LLM Integration
-- **Task Parsing**: Extract due dates, priorities, and tags from natural language
-- **Smart Suggestions**: AI-powered task recommendations
-- **Priority Scoring**: Intelligent task prioritization
-- **Schedule Optimization**: Optimal time blocking suggestions
+<details>
+  <summary><b>Windows</b></summary>
 
-### Claude Integration (Optional)
-- **Advanced Commands**: Complex task manipulation via natural language
-- **Data Export**: Export tasks in various formats
-- **Analytics**: Insights into productivity patterns
+  Available via [Scoop](https://scoop.sh). To install:
 
-## 🌐 Deployment
+  ```powershell
+  scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
+  scoop install supabase
+  ```
 
-### Vercel (Recommended)
+  To upgrade:
 
-1. **Connect to Vercel**
-   ```bash
-   npm i -g vercel
-   vercel
-   ```
+  ```powershell
+  scoop update supabase
+  ```
+</details>
 
-2. **Set environment variables** in Vercel dashboard
+<details>
+  <summary><b>Linux</b></summary>
 
-3. **Deploy**
-   ```bash
-   vercel --prod
-   ```
+  Available via [Homebrew](https://brew.sh) and Linux packages.
 
-### Self-Hosting
+  #### via Homebrew
 
-1. **Build the application**
-   ```bash
-   npm run build
-   ```
+  To install:
 
-2. **Start the server**
-   ```bash
-   npm run start
-   ```
+  ```sh
+  brew install supabase/tap/supabase
+  ```
 
-3. **Configure reverse proxy** (nginx/Apache) for HTTPS
+  To upgrade:
 
-## 📊 Performance Targets
+  ```sh
+  brew upgrade supabase
+  ```
 
-- **Page Load Time**: <2s on 3G
-- **Time to Interactive**: <3s
-- **API Response**: <100ms p95
-- **Local LLM**: <500ms response
-- **Sync Latency**: <1s
-- **Memory Usage**: <200MB
-- **Bundle Size**: <200KB
+  #### via Linux packages
 
-## 🤝 Contributing
+  Linux packages are provided in [Releases](https://github.com/supabase/cli/releases). To install, download the `.apk`/`.deb`/`.rpm`/`.pkg.tar.zst` file depending on your package manager and run the respective commands.
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+  ```sh
+  sudo apk add --allow-untrusted <...>.apk
+  ```
 
-### Development Setup
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if needed
-5. Submit a pull request
+  ```sh
+  sudo dpkg -i <...>.deb
+  ```
 
-## 📄 License
+  ```sh
+  sudo rpm -i <...>.rpm
+  ```
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+  ```sh
+  sudo pacman -U <...>.pkg.tar.zst
+  ```
+</details>
 
-## 🙏 Acknowledgments
+<details>
+  <summary><b>Other Platforms</b></summary>
 
-- **Next.js** team for the excellent framework
-- **Supabase** for the backend infrastructure
-- **shadcn** for the beautiful UI components
-- **Ollama** team for making local AI accessible
-- **Open source community** for inspiration and tools
+  You can also install the CLI via [go modules](https://go.dev/ref/mod#go-install) without the help of package managers.
 
-## 📧 Support
+  ```sh
+  go install github.com/supabase/cli@latest
+  ```
 
-- **Documentation**: [Full documentation](https://docs.example.com)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/productivity-app/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/productivity-app/discussions)
+  Add a symlink to the binary in `$PATH` for easier access:
 
----
+  ```sh
+  ln -s "$(go env GOPATH)/bin/cli" /usr/bin/supabase
+  ```
 
-Built with ❤️ for privacy-conscious productivity enthusiasts.
+  This works on other non-standard Linux distros.
+</details>
+
+<details>
+  <summary><b>Community Maintained Packages</b></summary>
+
+  Available via [pkgx](https://pkgx.sh/). Package script [here](https://github.com/pkgxdev/pantry/blob/main/projects/supabase.com/cli/package.yml).
+  To install in your working directory:
+
+  ```bash
+  pkgx install supabase
+  ```
+
+  Available via [Nixpkgs](https://nixos.org/). Package script [here](https://github.com/NixOS/nixpkgs/blob/master/pkgs/development/tools/supabase-cli/default.nix).
+</details>
+
+### Run the CLI
+
+```bash
+supabase bootstrap
+```
+
+Or using npx:
+
+```bash
+npx supabase bootstrap
+```
+
+The bootstrap command will guide you through the process of setting up a Supabase project using one of the [starter](https://github.com/supabase-community/supabase-samples/blob/main/samples.json) templates.
+
+## Docs
+
+Command & config reference can be found [here](https://supabase.com/docs/reference/cli/about).
+
+## Breaking changes
+
+We follow semantic versioning for changes that directly impact CLI commands, flags, and configurations.
+
+However, due to dependencies on other service images, we cannot guarantee that schema migrations, seed.sql, and generated types will always work for the same CLI major version. If you need such guarantees, we encourage you to pin a specific version of CLI in package.json.
+
+## Developing
+
+To run from source:
+
+```sh
+# Go >= 1.22
+go run . help
+```
