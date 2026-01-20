@@ -240,11 +240,13 @@ export class TaskService {
    * Private helper methods
    */
   private async getCurrentUserId(): Promise<string> {
+    // Check for authenticated user first
     const authState = authService.getState()
-    if (!authState.user) {
-      throw new Error('No authenticated user')
+    if (authState.user) {
+      return authState.user.id
     }
-    return authState.user.id
+    // Fall back to local user for single-user mode
+    return 'local-user'
   }
 
 }

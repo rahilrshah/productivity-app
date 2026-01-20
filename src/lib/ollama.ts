@@ -335,7 +335,7 @@ class OllamaClient {
 
   async generateTaskSuggestions(context: string, model: string = 'llama3.1:8b'): Promise<string[]> {
     const systemPrompt = `Based on the context provided, suggest 3-5 relevant tasks that would be helpful to complete.
-    
+
     Return a JSON array of task titles. Each task should be specific and actionable.`
 
     try {
@@ -345,7 +345,7 @@ class OllamaClient {
       ]) as OllamaResponse
 
       const content = response.message.content.trim()
-      
+
       try {
         const suggestions = JSON.parse(content)
         return Array.isArray(suggestions) ? suggestions : []
@@ -355,6 +355,173 @@ class OllamaClient {
     } catch (error) {
       console.error('Error generating task suggestions:', error)
       return []
+    }
+  }
+
+  // Agent-related methods for Command Center
+  async classifyIntent(text: string, model: string = 'llama3.1:8b'): Promise<{
+    intent: 'SYLLABUS' | 'PROJECT_BRAINSTORM' | 'QUICK_TASK' | 'SCHEDULE_REQUEST' | 'UNKNOWN'
+    confidence: number
+    extractedEntities: Record<string, string>
+  }> {
+    const systemPrompt = `You are an intent classifier for a productivity app.
+
+Classify the user input into exactly ONE of these intents:
+- SYLLABUS: Academic course syllabus, class schedule, assignment lists, grading policies, course information
+- PROJECT_BRAINSTORM: Project ideas, feature lists, milestone planning, development roadmaps, project briefs
+- QUICK_TASK: Simple single task, todo item, reminder, quick note
+- SCHEDULE_REQUEST: Requests about scheduling, rescheduling, time blocking, finding available time
+- UNKNOWN: Cannot determine intent or doesn't fit other categories
+
+Also extract any key entities you find (course codes, project names, dates, etc.)
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "intent": "INTENT_NAME",
+  "confidence": 0.0,
+  "extractedEntities": { "key": "value" }
+}
+
+Do not include any other text, only the JSON object.`
+
+    try {
+      const response = await this.chat(model, [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text.substring(0, 2000) }
+      ], { temperature: 0.3 }) as OllamaResponse
+
+      const content = response.message.content.trim()
+
+      // Extract JSON from response
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        return {
+          intent: parsed.intent || 'UNKNOWN',
+          confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+          extractedEntities: parsed.extractedEntities || {}
+        }
+      }
+
+      return { intent: 'UNKNOWN', confidence: 0, extractedEntities: {} }
+    } catch (error) {
+      console.error('Error classifying intent:', error)
+      return { intent: 'UNKNOWN', confidence: 0, extractedEntities: {} }
+    }
+  }
+
+  async extractSyllabusData(text: string, model: string = 'llama3.1:8b'): Promise<{
+    courseCode: string
+    courseName: string
+    semester: string
+    instructor?: string
+    credits?: number
+    assignments: Array<{
+      title: string
+      dueDate?: string
+      type: string
+      weight?: number
+    }>
+  } | null> {
+    const systemPrompt = `You are an expert at extracting structured data from academic syllabi.
+
+Extract course information from the provided syllabus text. Return a JSON object with:
+- courseCode: The course code (e.g., "CS101", "MATH 200")
+- courseName: Full course name
+- semester: Semester/term (e.g., "Fall 2024", "Spring 2025")
+- instructor: Instructor name if mentioned
+- credits: Number of credits if mentioned
+- assignments: Array of assignments with:
+  - title: Assignment name
+  - dueDate: ISO date string (estimate year as 2025 if not specified)
+  - type: Type of assignment (Homework, Exam, Project, Quiz, etc.)
+  - weight: Percentage weight if mentioned
+
+If you cannot find a required field, use reasonable defaults:
+- courseCode: "UNKNOWN"
+- courseName: First meaningful title found
+- semester: "Current"
+
+Respond ONLY with valid JSON, no other text.`
+
+    try {
+      const response = await this.chat(model, [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text.substring(0, 4000) }
+      ], { temperature: 0.2 }) as OllamaResponse
+
+      const content = response.message.content.trim()
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
+
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        return {
+          courseCode: parsed.courseCode || 'UNKNOWN',
+          courseName: parsed.courseName || 'Untitled Course',
+          semester: parsed.semester || 'Current',
+          instructor: parsed.instructor,
+          credits: parsed.credits,
+          assignments: Array.isArray(parsed.assignments) ? parsed.assignments : []
+        }
+      }
+
+      return null
+    } catch (error) {
+      console.error('Error extracting syllabus data:', error)
+      return null
+    }
+  }
+
+  async extractProjectData(text: string, model: string = 'llama3.1:8b'): Promise<{
+    projectName: string
+    projectType: 'personal' | 'work' | 'side-project'
+    description: string
+    milestones: Array<{
+      title: string
+      dueDate?: string
+    }>
+    deadline?: string
+  } | null> {
+    const systemPrompt = `You are an expert at extracting project information from brainstorms and briefs.
+
+Extract project details from the provided text. Return a JSON object with:
+- projectName: Name or title of the project
+- projectType: One of "personal", "work", or "side-project"
+- description: Brief description of the project
+- milestones: Array of milestones/phases with:
+  - title: Milestone name
+  - dueDate: ISO date string if mentioned
+- deadline: Overall project deadline if mentioned
+
+If the text mentions features, convert them into milestones.
+If no clear milestones, break the project into logical phases.
+
+Respond ONLY with valid JSON, no other text.`
+
+    try {
+      const response = await this.chat(model, [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text.substring(0, 3000) }
+      ], { temperature: 0.3 }) as OllamaResponse
+
+      const content = response.message.content.trim()
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
+
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0])
+        return {
+          projectName: parsed.projectName || 'Untitled Project',
+          projectType: parsed.projectType || 'personal',
+          description: parsed.description || '',
+          milestones: Array.isArray(parsed.milestones) ? parsed.milestones : [],
+          deadline: parsed.deadline
+        }
+      }
+
+      return null
+    } catch (error) {
+      console.error('Error extracting project data:', error)
+      return null
     }
   }
 }
@@ -372,7 +539,7 @@ export function getOllamaClient(): OllamaClient {
 // Hook for React components
 export function useOllama() {
   const client = getOllamaClient()
-  
+
   return {
     client,
     isAvailable: () => client.isAvailable(),
@@ -380,5 +547,9 @@ export function useOllama() {
     parseTask: (text: string, model?: string) => client.parseTaskFromText(text, model),
     suggestSubtasks: (task: string, model?: string) => client.suggestTaskDecomposition(task, model),
     generateSuggestions: (context: string, model?: string) => client.generateTaskSuggestions(context, model),
+    // Agent-related methods
+    classifyIntent: (text: string, model?: string) => client.classifyIntent(text, model),
+    extractSyllabusData: (text: string, model?: string) => client.extractSyllabusData(text, model),
+    extractProjectData: (text: string, model?: string) => client.extractProjectData(text, model),
   }
 }

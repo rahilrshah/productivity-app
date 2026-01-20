@@ -168,12 +168,13 @@ export class SyncService {
    * Create task (with offline support)
    */
   async createTask(task: Omit<Task, 'id' | 'created_at' | 'updated_at'>): Promise<Task> {
-    if (!this.userId) throw new Error('User not initialized')
+    // Use provided user_id or fall back to local-user for single-user mode
+    const userId = task.user_id || this.userId || 'local-user'
 
     const newTask: Task = {
       ...task,
       id: crypto.randomUUID(),
-      user_id: this.userId,
+      user_id: userId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
@@ -204,10 +205,10 @@ export class SyncService {
    * Update task (with offline support)
    */
   async updateTask(taskId: string, updates: Partial<Task>): Promise<Task> {
-    if (!this.userId) throw new Error('User not initialized')
+    const userId = this.userId || 'local-user'
 
     // Get existing task
-    const tasks = await indexedDBService.getTasks(this.userId)
+    const tasks = await indexedDBService.getTasks(userId)
     const existingTask = tasks.find(t => t.id === taskId)
     
     if (!existingTask) {
@@ -246,7 +247,7 @@ export class SyncService {
    * Delete task (with offline support)
    */
   async deleteTask(taskId: string): Promise<void> {
-    if (!this.userId) throw new Error('User not initialized')
+    // Single-user mode support
 
     // Remove from local storage
     await indexedDBService.deleteTask(taskId)
@@ -269,9 +270,9 @@ export class SyncService {
    * Get tasks (from local storage)
    */
   async getTasks(): Promise<Task[]> {
-    if (!this.userId) throw new Error('User not initialized')
-    
-    const tasks = await indexedDBService.getTasks(this.userId)
+    const userId = this.userId || 'local-user'
+
+    const tasks = await indexedDBService.getTasks(userId)
     
     // Decrypt tasks
     const decryptedTasks = []

@@ -6,11 +6,12 @@ import { ScheduleView } from '@/components/core/ScheduleView'
 import { UnifiedDashboard } from '@/components/core/UnifiedDashboard'
 import { AcademicCalendar } from '@/components/core/AcademicCalendar'
 import { AIAssistant } from '@/components/core/AIAssistant'
+import { CommandCenter } from '@/components/core/CommandCenter'
 import TableBuilder from '@/components/core/TableBuilder'
 import { Header } from '@/components/shared/Header'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Button } from '@/components/ui/button'
-import { Calendar, List, GraduationCap, Settings } from 'lucide-react'
+import { Calendar, List, GraduationCap, Settings, MessageSquare, LayoutGrid } from 'lucide-react'
 import { Task } from '@/types'
 
 function ScheduleViewWrapper() {
@@ -46,7 +47,7 @@ function ScheduleViewWrapper() {
 }
 
 export default function HomePage() {
-  const [currentView, setCurrentView] = useState<'dashboard' | 'tasks' | 'schedule' | 'academic' | 'table-builder'>('dashboard')
+  const [currentView, setCurrentView] = useState<'command' | 'dashboard' | 'tasks' | 'schedule' | 'academic' | 'table-builder'>('command')
   const [allTasks, setAllTasks] = useState<Task[]>([])
 
   // Fetch tasks for AI assistant
@@ -74,28 +75,40 @@ export default function HomePage() {
           <div className="mb-8">
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-3xl font-bold tracking-tight">
-                  {currentView === 'dashboard' ? 'Productivity Dashboard' : 
-                   currentView === 'tasks' ? 'Your Tasks' : 
-                   currentView === 'schedule' ? 'Schedule View' : 
-                   currentView === 'academic' ? 'Academic Calendar' : 'Custom Task Types'}
-                </h1>
-                <p className="text-muted-foreground mt-2">
-                  {currentView === 'dashboard' ? 'Unified view of all your courses, projects, clubs, and todos' :
-                   currentView === 'tasks' ? 'Manage your tasks with AI-powered assistance' :
-                   currentView === 'schedule' ? 'Your optimized daily schedule' :
-                   currentView === 'academic' ? 'Academic calendar with semester planning and course management' :
-                   'Create custom task types with your own fields and settings'}
-                </p>
+                {currentView !== 'command' && (
+                  <>
+                    <h1 className="text-3xl font-bold tracking-tight">
+                      {currentView === 'dashboard' ? 'Productivity Dashboard' :
+                       currentView === 'tasks' ? 'Your Tasks' :
+                       currentView === 'schedule' ? 'Schedule View' :
+                       currentView === 'academic' ? 'Academic Calendar' : 'Custom Task Types'}
+                    </h1>
+                    <p className="text-muted-foreground mt-2">
+                      {currentView === 'dashboard' ? 'Unified view of all your courses, projects, clubs, and todos' :
+                       currentView === 'tasks' ? 'Manage your tasks with AI-powered assistance' :
+                       currentView === 'schedule' ? 'Your optimized daily schedule' :
+                       currentView === 'academic' ? 'Academic calendar with semester planning and course management' :
+                       'Create custom task types with your own fields and settings'}
+                    </p>
+                  </>
+                )}
               </div>
-              
+
               <div className="flex items-center space-x-2">
+                <Button
+                  variant={currentView === 'command' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setCurrentView('command')}
+                >
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Command
+                </Button>
                 <Button
                   variant={currentView === 'dashboard' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setCurrentView('dashboard')}
                 >
-                  <List className="h-4 w-4 mr-2" />
+                  <LayoutGrid className="h-4 w-4 mr-2" />
                   Dashboard
                 </Button>
                 <Button
@@ -135,7 +148,13 @@ export default function HomePage() {
           </div>
           
           <Suspense fallback={<LoadingSpinner />}>
-            {currentView === 'dashboard' ? (
+            {currentView === 'command' ? (
+              <CommandCenter
+                onTasksCreated={(tasks) => {
+                  setAllTasks(prev => [...prev, ...tasks])
+                }}
+              />
+            ) : currentView === 'dashboard' ? (
               <UnifiedDashboard onViewChange={setCurrentView} />
             ) : currentView === 'tasks' ? (
               <TaskList onViewChange={setCurrentView} />
