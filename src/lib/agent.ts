@@ -137,7 +137,11 @@ class AgentService {
       task_type: 'course',
       type_metadata: courseMetadata,
       priority: 8,
+      manual_priority: 5, // v3.0: Course containers get high priority boost
       tags: ['course', syllabusData.semester.toLowerCase().replace(/\s+/g, '-')],
+      // v3.0 Graph fields
+      node_type: 'container',
+      category: 'course',
     }
 
     actions.push({
@@ -180,7 +184,11 @@ class AgentService {
           parent_id: courseTask.id,
           due_date: assignment.dueDate,
           priority,
+          manual_priority: assignment.weight && assignment.weight > 15 ? 3 : 0, // v3.0: High-weight assignments get priority boost
           tags: ['assignment', syllabusData.courseCode.toLowerCase()],
+          // v3.0 Graph fields
+          node_type: 'item',
+          category: 'course',
         }
 
         actions.push({
@@ -238,8 +246,12 @@ class AgentService {
       task_type: 'project',
       type_metadata: projectMetadata,
       priority: 7,
+      manual_priority: 3, // v3.0: Projects get priority boost
       due_date: projectData.deadline,
       tags: ['project', projectData.projectType],
+      // v3.0 Graph fields
+      node_type: 'container',
+      category: 'project',
     }
 
     actions.push({
@@ -278,7 +290,11 @@ class AgentService {
           parent_id: projectTask.id,
           due_date: milestone.dueDate,
           priority: 6,
+          manual_priority: 0, // v3.0: Default priority for milestones
           tags: ['milestone', projectData.projectName.toLowerCase().replace(/\s+/g, '-')],
+          // v3.0 Graph fields
+          node_type: 'item',
+          category: 'project',
         }
 
         actions.push({
@@ -332,8 +348,12 @@ class AgentService {
       task_type: 'todo',
       type_metadata: todoMetadata,
       priority: taskData.priority || 5,
+      manual_priority: 0, // v3.0: Quick tasks use default priority
       due_date: taskData.due_date,
       tags: taskData.tags || [],
+      // v3.0 Graph fields
+      node_type: 'item',
+      category: 'todo',
     }
 
     actions.push({
@@ -483,9 +503,13 @@ class AgentService {
       task_type: 'todo',
       type_metadata: todoMetadata,
       priority: 6,
+      manual_priority: 0,
       due_date: scheduleData.newDate,
       tags: ['scheduling', 'time-slot', scheduleData.preferences?.timeOfDay].filter(Boolean) as string[],
-      duration_minutes: duration
+      duration_minutes: duration,
+      // v3.0 Graph fields
+      node_type: 'item',
+      category: 'todo',
     }
 
     actions.push({
@@ -555,9 +579,13 @@ class AgentService {
       task_type: taskType,
       type_metadata: metadata,
       priority: 7,
+      manual_priority: 2, // v3.0: Time blocks get slight priority boost
       due_date: scheduleData.newDate,
       tags: ['time-block', 'focus', scheduleData.preferences?.timeOfDay].filter(Boolean) as string[],
-      duration_minutes: duration
+      duration_minutes: duration,
+      // v3.0 Graph fields
+      node_type: 'item',
+      category: taskType === 'course' ? 'course' : taskType === 'project' ? 'project' : 'routine',
     }
 
     actions.push({
@@ -615,9 +643,13 @@ class AgentService {
       task_type: 'todo',
       type_metadata: todoMetadata,
       priority: 6,
+      manual_priority: 0,
       due_date: scheduleData.newDate,
       tags: ['scheduled', 'appointment', scheduleData.preferences?.timeOfDay].filter(Boolean) as string[],
-      duration_minutes: duration
+      duration_minutes: duration,
+      // v3.0 Graph fields
+      node_type: 'item',
+      category: 'todo',
     }
 
     actions.push({

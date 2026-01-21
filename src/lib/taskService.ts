@@ -1,4 +1,4 @@
-import { Task, CreateTaskDTO, UpdateTaskDTO } from '@/types'
+import { Task, CreateTaskDTO, UpdateTaskDTO, TaskRelation, CreateRelationDTO, GraphNodeFilter } from '@/types'
 import { syncService } from '@/lib/sync/syncService'
 import { indexedDBService } from '@/lib/storage/indexedDB'
 import { authService } from '@/lib/auth'
@@ -109,13 +109,23 @@ export class TaskService {
       }
     } catch (error) {
       // Use sync service for offline creation
+      // Determine node_type and category based on task_type if not provided
+      const nodeType = taskData.node_type ||
+        (taskData.parent_id ? 'item' :
+          (['course', 'project', 'club'].includes(taskData.task_type) ? 'container' : 'item'))
+
+      const category = taskData.category || taskData.task_type || 'todo'
+
       const task: Omit<Task, 'id' | 'created_at' | 'updated_at'> = {
         user_id: await this.getCurrentUserId(),
         title: taskData.title,
         content: taskData.content || '',
+        rich_content: taskData.rich_content,
         status: 'pending',
         priority: taskData.priority || 5,
+        manual_priority: taskData.manual_priority || 0,
         due_date: taskData.due_date,
+        start_date: taskData.start_date,
         tags: taskData.tags || [],
         dependencies: [],
         position: 0,
@@ -123,6 +133,9 @@ export class TaskService {
         parent_id: taskData.parent_id,
         task_type: taskData.task_type || 'todo',
         type_metadata: taskData.type_metadata || { category: 'general' },
+        // v3.0 Graph fields
+        node_type: nodeType as 'container' | 'item',
+        category: category as Task['category'],
       }
 
       return await syncService.createTask(task)
@@ -234,6 +247,149 @@ export class TaskService {
   async clearData(): Promise<void> {
     await syncService.clearLocalData()
     this.initialized = false
+  }
+
+  // ==========================================
+  // Graph Architecture Methods (v3.0)
+  // ==========================================
+
+  /**
+   * Get all container nodes (Courses, Projects, Clubs)
+   */
+  async getContainers(filter?: { category?: string; status?: string }): Promise<Task[]> {
+    try {
+      const params = new URLSearchParams()
+      params.set('node_type', 'container')
+      if (filter?.category) params.set('category', filter.category)
+      if (filter?.status) params.set('status', filter.status)
+
+      const response = await fetch(`/api/tasks?${params.toString()}`)
+      if (response.ok) {
+        const data = await response.json()
+        return data.tasks || []
+      }
+      return []
+    } catch (error) {
+      console.error('Error fetching containers:', error)
+      return []
+    }
+  }
+
+  /**
+   * Get items under a specific container
+   */
+  async getItemsByContainer(containerId: string): Promise<Task[]> {
+    try {
+      const params = new URLSearchParams()
+      params.set('parent_id', containerId)
+
+      const response = await fetch(`/api/tasks?${params.toString()}`)
+      if (response.ok) {
+        const data = await response.json()
+        return data.tasks || []
+      }
+      return []
+    } catch (error) {
+      console.error('Error fetching items by container:', error)
+      return []
+    }
+  }
+
+  /**
+   * Get tasks sorted by computed priority (Gravity Engine)
+   */
+  async getTasksByPriority(limit: number = 20): Promise<Task[]> {
+    try {
+      const params = new URLSearchParams()
+      params.set('sort_by', 'computed_priority')
+      params.set('limit', limit.toString())
+      params.set('node_type', 'item')
+      params.set('status', 'pending,active')
+
+      const response = await fetch(`/api/tasks?${params.toString()}`)
+      if (response.ok) {
+        const data = await response.json()
+        return data.tasks || []
+      }
+      return []
+    } catch (error) {
+      console.error('Error fetching tasks by priority:', error)
+      return []
+    }
+  }
+
+  /**
+   * Create a relationship between tasks
+   */
+  async createRelation(relationData: CreateRelationDTO): Promise<TaskRelation | null> {
+    try {
+      const response = await fetch('/api/relations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(relationData),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        return data.relation
+      }
+      return null
+    } catch (error) {
+      console.error('Error creating relation:', error)
+      return null
+    }
+  }
+
+  /**
+   * Delete a relationship
+   */
+  async deleteRelation(relationId: string): Promise<boolean> {
+    try {
+      const response = await fetch(`/api/relations/${relationId}`, {
+        method: 'DELETE',
+      })
+      return response.ok
+    } catch (error) {
+      console.error('Error deleting relation:', error)
+      return false
+    }
+  }
+
+  /**
+   * Get relations for a task (both directions)
+   */
+  async getRelations(taskId: string): Promise<{ blocking: TaskRelation[]; blockedBy: TaskRelation[] }> {
+    try {
+      const response = await fetch(`/api/relations?task_id=${taskId}`)
+      if (response.ok) {
+        const data = await response.json()
+        return {
+          blocking: data.blocking || [],
+          blockedBy: data.blockedBy || [],
+        }
+      }
+      return { blocking: [], blockedBy: [] }
+    } catch (error) {
+      console.error('Error fetching relations:', error)
+      return { blocking: [], blockedBy: [] }
+    }
+  }
+
+  /**
+   * Get active containers for agent context injection
+   */
+  async getActiveContainersForContext(): Promise<Array<{ id: string; title: string; category: string }>> {
+    try {
+      const containers = await this.getContainers({ status: 'active' })
+      return containers.map(c => ({
+        id: c.id,
+        title: c.title,
+        category: c.category || c.task_type,
+      }))
+    } catch (error) {
+      console.error('Error fetching containers for context:', error)
+      return []
+    }
   }
 
   /**

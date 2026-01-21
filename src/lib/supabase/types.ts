@@ -29,11 +29,16 @@ export type Database = {
           id: string
           user_id: string
           parent_id: string | null
+          root_id: string | null
           title: string
           content: string | null
-          status: 'pending' | 'in_progress' | 'completed' | 'archived'
+          rich_content: Record<string, any> | null
+          status: 'pending' | 'active' | 'blocked' | 'in_progress' | 'completed' | 'archived'
           priority: number
+          manual_priority: number
+          computed_priority: number
           due_date: string | null
+          start_date: string | null
           completed_at: string | null
           scheduled_for: string | null
           duration_minutes: number | null
@@ -48,6 +53,8 @@ export type Database = {
           version_history: string | null
           task_type: 'course' | 'project' | 'club' | 'todo'
           type_metadata: Record<string, any>
+          node_type: 'container' | 'item' | null
+          category: 'course' | 'project' | 'club' | 'routine' | 'todo' | 'journal' | null
           created_at: string
           updated_at: string
           deleted_at: string | null
@@ -56,11 +63,16 @@ export type Database = {
           id?: string
           user_id: string
           parent_id?: string | null
+          root_id?: string | null
           title: string
           content?: string | null
-          status?: 'pending' | 'in_progress' | 'completed' | 'archived'
+          rich_content?: Record<string, any> | null
+          status?: 'pending' | 'active' | 'blocked' | 'in_progress' | 'completed' | 'archived'
           priority?: number
+          manual_priority?: number
+          computed_priority?: number
           due_date?: string | null
+          start_date?: string | null
           completed_at?: string | null
           scheduled_for?: string | null
           duration_minutes?: number | null
@@ -75,6 +87,8 @@ export type Database = {
           version_history?: string | null
           task_type?: 'course' | 'project' | 'club' | 'todo'
           type_metadata?: Record<string, any>
+          node_type?: 'container' | 'item' | null
+          category?: 'course' | 'project' | 'club' | 'routine' | 'todo' | 'journal' | null
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
@@ -83,11 +97,16 @@ export type Database = {
           id?: string
           user_id?: string
           parent_id?: string | null
+          root_id?: string | null
           title?: string
           content?: string | null
-          status?: 'pending' | 'in_progress' | 'completed' | 'archived'
+          rich_content?: Record<string, any> | null
+          status?: 'pending' | 'active' | 'blocked' | 'in_progress' | 'completed' | 'archived'
           priority?: number
+          manual_priority?: number
+          computed_priority?: number
           due_date?: string | null
+          start_date?: string | null
           completed_at?: string | null
           scheduled_for?: string | null
           duration_minutes?: number | null
@@ -102,6 +121,8 @@ export type Database = {
           version_history?: string | null
           task_type?: 'course' | 'project' | 'club' | 'todo'
           type_metadata?: Record<string, any>
+          node_type?: 'container' | 'item' | null
+          category?: 'course' | 'project' | 'club' | 'routine' | 'todo' | 'journal' | null
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
@@ -177,6 +198,70 @@ export type Database = {
           action_config?: Record<string, any> | null
           is_active?: boolean
           last_triggered_at?: string | null
+          created_at?: string
+        }
+      }
+      task_relations: {
+        Row: {
+          id: string
+          user_id: string
+          predecessor_id: string
+          successor_id: string
+          relation_type: 'blocks' | 'relates_to' | 'duplicate_of'
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          predecessor_id: string
+          successor_id: string
+          relation_type?: 'blocks' | 'relates_to' | 'duplicate_of'
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          predecessor_id?: string
+          successor_id?: string
+          relation_type?: 'blocks' | 'relates_to' | 'duplicate_of'
+          created_at?: string
+        }
+      }
+      agent_logs: {
+        Row: {
+          id: string
+          user_id: string
+          thread_id: string
+          turn_index: number
+          user_input: string
+          ai_response: string | null
+          intent: string
+          context_state: Record<string, any> | null
+          actions_executed: Record<string, any>[] | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          thread_id: string
+          turn_index: number
+          user_input: string
+          ai_response?: string | null
+          intent: string
+          context_state?: Record<string, any> | null
+          actions_executed?: Record<string, any>[] | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          thread_id?: string
+          turn_index?: number
+          user_input?: string
+          ai_response?: string | null
+          intent?: string
+          context_state?: Record<string, any> | null
+          actions_executed?: Record<string, any>[] | null
           created_at?: string
         }
       }

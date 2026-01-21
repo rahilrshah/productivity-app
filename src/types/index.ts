@@ -1,3 +1,6 @@
+// Re-export all graph types for v3.0 architecture
+export * from './graph'
+
 export interface User {
   id: string
   email: string
@@ -10,11 +13,16 @@ export interface Task {
   id: string
   user_id: string
   parent_id?: string
+  root_id?: string              // v3.0: Points to top-level container
   title: string
   content: string
+  rich_content?: Record<string, unknown>  // v3.0: Tiptap JSON content
   status: TaskStatus
-  priority: number
+  priority: number              // Legacy priority
+  manual_priority?: number      // v3.0: User override (-10 to +10)
+  computed_priority?: number    // v3.0: Calculated by trigger (READ-ONLY)
   due_date?: string
+  start_date?: string           // v3.0: Deferral date
   completed_at?: string
   scheduled_for?: string
   duration_minutes?: number
@@ -30,9 +38,12 @@ export interface Task {
   created_at: string
   updated_at: string
   deleted_at?: string
-  // New multi-type fields
+  // Multi-type fields
   task_type: TaskType
   type_metadata: TaskMetadata
+  // v3.0 Graph fields
+  node_type?: 'container' | 'item'
+  category?: 'course' | 'project' | 'club' | 'routine' | 'todo' | 'journal'
 }
 
 export type TaskType = 'course' | 'project' | 'club' | 'todo'
@@ -115,14 +126,20 @@ export type ActionType = 'create_task' | 'update_task' | 'send_notification' | '
 export interface CreateTaskDTO {
   title: string
   content?: string
+  rich_content?: Record<string, unknown>  // v3.0: Tiptap JSON
   priority?: number
+  manual_priority?: number     // v3.0: User override
   due_date?: string
+  start_date?: string          // v3.0: Deferral date
   parent_id?: string
   tags?: string[]
   task_type: TaskType
   type_metadata: TaskMetadata
   scheduled_for?: string
   duration_minutes?: number
+  // v3.0 Graph fields
+  node_type?: 'container' | 'item'
+  category?: 'course' | 'project' | 'club' | 'routine' | 'todo' | 'journal'
 }
 
 export interface CreateCourseTaskDTO extends Omit<CreateTaskDTO, 'type_metadata' | 'task_type'> {

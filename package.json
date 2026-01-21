@@ -33,6 +33,7 @@
     "tailwind-merge": "^2.0.0",
     "tailwindcss-animate": "^1.0.7",
     "tiptap": "^1.32.2",
+    "uuid": "^13.0.0",
     "zustand": "^4.4.7"
   },
   "devDependencies": {
@@ -45,6 +46,7 @@
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.39",
     "@types/react-dom": "^18.2.17",
+    "@types/uuid": "^10.0.0",
     "audit-ci": "^6.6.1",
     "autoprefixer": "^10.4.16",
     "eslint": "^8.54.0",
