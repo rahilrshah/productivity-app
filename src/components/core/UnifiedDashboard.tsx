@@ -2,10 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Task, TaskType } from '@/types'
-import { CourseWidget } from './CourseWidget'
-import { ProjectWidget } from './ProjectWidget'
-import { ClubWidget } from './ClubWidget'
-import { TodoWidget } from './TodoWidget'
+import { TaskWidget, WIDGET_CONFIGS } from './TaskWidget'
 import { TypeAwareCreateForm } from './TypeAwareCreateForm'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -80,14 +77,6 @@ export function UnifiedDashboard({ onViewChange }: UnifiedDashboardProps) {
   }
 
   const completionRate = stats.total > 0 ? Math.round((stats.completed / stats.total) * 100) : 0
-
-  // Get tasks by type for widgets
-  const tasksByType = {
-    course: tasks.filter(t => t.task_type === 'course'),
-    project: tasks.filter(t => t.task_type === 'project'),
-    club: tasks.filter(t => t.task_type === 'club'),
-    todo: tasks.filter(t => t.task_type === 'todo' || !t.task_type)
-  }
 
   if (isLoading) {
     return (
@@ -221,35 +210,39 @@ export function UnifiedDashboard({ onViewChange }: UnifiedDashboardProps) {
 
       {/* Type-based Widgets Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <CourseWidget 
-          tasks={tasksByType.course}
+        <TaskWidget
+          tasks={tasks}
+          config={WIDGET_CONFIGS.course}
           onTaskCreate={() => {
             setDefaultTaskType('course')
             setShowCreateForm(true)
           }}
           onTaskSelect={handleTaskSelect}
         />
-        
-        <ProjectWidget 
-          tasks={tasksByType.project}
+
+        <TaskWidget
+          tasks={tasks}
+          config={WIDGET_CONFIGS.project}
           onTaskCreate={() => {
             setDefaultTaskType('project')
             setShowCreateForm(true)
           }}
           onTaskSelect={handleTaskSelect}
         />
-        
-        <ClubWidget 
-          tasks={tasksByType.club}
+
+        <TaskWidget
+          tasks={tasks}
+          config={WIDGET_CONFIGS.club}
           onTaskCreate={() => {
             setDefaultTaskType('club')
             setShowCreateForm(true)
           }}
           onTaskSelect={handleTaskSelect}
         />
-        
-        <TodoWidget 
-          tasks={tasksByType.todo}
+
+        <TaskWidget
+          tasks={tasks}
+          config={WIDGET_CONFIGS.todo}
           onTaskCreate={() => {
             setDefaultTaskType('todo')
             setShowCreateForm(true)

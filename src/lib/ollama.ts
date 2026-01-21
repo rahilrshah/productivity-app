@@ -373,54 +373,21 @@ class OllamaClient {
   }
 
   // Agent-related methods for Command Center
+  /**
+   * @deprecated Use classifyLegacyIntent from '@/lib/agent/intentClassifier' instead
+   */
   async classifyIntent(text: string, model: string = 'llama3.1:8b'): Promise<{
     intent: 'SYLLABUS' | 'PROJECT_BRAINSTORM' | 'QUICK_TASK' | 'SCHEDULE_REQUEST' | 'UNKNOWN'
     confidence: number
     extractedEntities: Record<string, string>
   }> {
-    const systemPrompt = `You are an intent classifier for a productivity app.
-
-Classify the user input into exactly ONE of these intents:
-- SYLLABUS: Academic course syllabus, class schedule, assignment lists, grading policies, course information
-- PROJECT_BRAINSTORM: Project ideas, feature lists, milestone planning, development roadmaps, project briefs
-- QUICK_TASK: Simple single task, todo item, reminder, quick note
-- SCHEDULE_REQUEST: Requests about scheduling, rescheduling, time blocking, finding available time
-- UNKNOWN: Cannot determine intent or doesn't fit other categories
-
-Also extract any key entities you find (course codes, project names, dates, etc.)
-
-Respond ONLY with valid JSON in this exact format:
-{
-  "intent": "INTENT_NAME",
-  "confidence": 0.0,
-  "extractedEntities": { "key": "value" }
-}
-
-Do not include any other text, only the JSON object.`
-
-    try {
-      const response = await this.chat(model, [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: text.substring(0, 2000) }
-      ], { temperature: 0.3 }) as OllamaResponse
-
-      const content = response.message.content.trim()
-
-      // Extract JSON from response
-      const jsonMatch = content.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
-        return {
-          intent: parsed.intent || 'UNKNOWN',
-          confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
-          extractedEntities: parsed.extractedEntities || {}
-        }
-      }
-
-      return { intent: 'UNKNOWN', confidence: 0, extractedEntities: {} }
-    } catch (error) {
-      console.error('Error classifying intent:', error)
-      return { intent: 'UNKNOWN', confidence: 0, extractedEntities: {} }
+    // Delegate to unified classifier
+    const { classifyLegacyIntent } = await import('@/lib/agent/intentClassifier')
+    const result = await classifyLegacyIntent(text, model)
+    return {
+      intent: result.intent,
+      confidence: result.confidence,
+      extractedEntities: result.entities
     }
   }
 

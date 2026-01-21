@@ -10,6 +10,7 @@ import {
   AgentInteractResponse,
   CreateGraphNodeDTO,
 } from '@/types'
+import { classifyGraphIntent, GraphIntent, IntentClassification } from '@/lib/agent/intentClassifier'
 
 // Simple UUID v4 generator for client-side use
 function generateUUID(): string {
@@ -75,7 +76,7 @@ class StatefulAgentService {
       }
 
       // Step 4: Classify intent with graph awareness
-      const classification = await this.classifyGraphIntent(
+      const classification = await this.classifyGraphIntentInternal(
         request.input,
         containerContext,
         client
@@ -213,64 +214,19 @@ class StatefulAgentService {
 
   /**
    * Classify intent with graph architecture awareness
+   * Delegates to unified intent classifier
    */
-  private async classifyGraphIntent(
+  private async classifyGraphIntentInternal(
     input: string,
     containerContext: string,
-    client: ReturnType<typeof getOllamaClient>
+    _client: ReturnType<typeof getOllamaClient>
   ): Promise<{ intent: string; confidence: number; entities: Record<string, string> }> {
-    const systemPrompt = `You are an intent classifier for a productivity app with a graph-based task architecture.
-
-CONTEXT - Active containers (courses/projects/clubs):
-${containerContext || 'No active containers'}
-
-Classify the user input into ONE of these intents:
-- COURSE_TASK: Task related to a course, assignment, exam, study (maps to category: course)
-- PROJECT_TASK: Task related to a project, milestone, feature, development (maps to category: project)
-- CLUB_TASK: Task related to club activities, meetings, events (maps to category: club)
-- ROUTINE: Daily/weekly recurring task, habit (maps to category: routine)
-- QUICK_TODO: Simple one-off task (maps to category: todo)
-- JOURNAL: Reflection, note, thought capture (maps to category: journal)
-- CREATE_CONTAINER: User wants to create a new course/project/club
-- SCHEDULE_REQUEST: Scheduling, time blocking, rescheduling
-- UNKNOWN: Cannot determine intent
-
-Also extract:
-- title: A concise title for the task/item
-- parent_container: If this belongs under an existing container, which one?
-- category: The graph category (course/project/club/routine/todo/journal)
-- due_date: Any mentioned deadline
-- priority_hint: "high", "medium", "low" if mentioned
-
-Respond ONLY with JSON:
-{
-  "intent": "INTENT_NAME",
-  "confidence": 0.0,
-  "entities": { "title": "", "parent_container": "", "category": "", "due_date": "", "priority_hint": "" }
-}`
-
-    try {
-      const response = await client.chat('llama3.1:8b', [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: input.substring(0, 2000) }
-      ], { temperature: 0.3 })
-
-      const content = (response as any).message?.content?.trim() || ''
-      const jsonMatch = content.match(/\{[\s\S]*\}/)
-
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0])
-        return {
-          intent: parsed.intent || 'UNKNOWN',
-          confidence: parsed.confidence || 0.5,
-          entities: parsed.entities || {},
-        }
-      }
-
-      return { intent: 'UNKNOWN', confidence: 0, entities: {} }
-    } catch (error) {
-      console.error('Error classifying graph intent:', error)
-      return { intent: 'QUICK_TODO', confidence: 0.3, entities: {} }
+    // Use unified classifier
+    const result = await classifyGraphIntent(input, containerContext)
+    return {
+      intent: result.intent,
+      confidence: result.confidence,
+      entities: result.entities,
     }
   }
 

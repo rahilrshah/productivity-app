@@ -1,7 +1,36 @@
-import { Task, CreateTaskDTO, UpdateTaskDTO, TaskRelation, CreateRelationDTO, GraphNodeFilter } from '@/types'
+import { Task, CreateTaskDTO, UpdateTaskDTO, TaskRelation, CreateRelationDTO, GraphNodeFilter, TaskType, TaskCategory } from '@/types'
 import { syncService } from '@/lib/sync/syncService'
 import { indexedDBService } from '@/lib/storage/indexedDB'
 import { authService } from '@/lib/auth'
+
+/**
+ * Derives task_type from category for backward compatibility
+ * Maps v3.0 categories to legacy task_type
+ */
+function categoryToTaskType(category: TaskCategory | undefined): TaskType {
+  switch (category) {
+    case 'course': return 'course'
+    case 'project': return 'project'
+    case 'club': return 'club'
+    case 'routine': return 'todo'  // routine maps to todo for legacy
+    case 'journal': return 'todo'  // journal maps to todo for legacy
+    case 'todo':
+    default:
+      return 'todo'
+  }
+}
+
+/**
+ * Normalizes category, accepting both new category and legacy task_type
+ */
+function normalizeCategory(taskData: CreateTaskDTO): TaskCategory {
+  // Prefer category if provided
+  if (taskData.category) return taskData.category
+  // Fall back to task_type mapping
+  if (taskData.task_type) return taskData.task_type as TaskCategory
+  // Default to todo
+  return 'todo'
+}
 
 /**
  * Unified task service that handles both online and offline operations
@@ -109,12 +138,14 @@ export class TaskService {
       }
     } catch (error) {
       // Use sync service for offline creation
-      // Determine node_type and category based on task_type if not provided
+      // Normalize category (primary field) and derive task_type for backward compatibility
+      const category = normalizeCategory(taskData)
+      const taskType = taskData.task_type || categoryToTaskType(category)
+
+      // Determine node_type: containers are top-level courses/projects/clubs, items have parents
       const nodeType = taskData.node_type ||
         (taskData.parent_id ? 'item' :
-          (['course', 'project', 'club'].includes(taskData.task_type) ? 'container' : 'item'))
-
-      const category = taskData.category || taskData.task_type || 'todo'
+          (['course', 'project', 'club'].includes(category) ? 'container' : 'item'))
 
       const task: Omit<Task, 'id' | 'created_at' | 'updated_at'> = {
         user_id: await this.getCurrentUserId(),
@@ -131,11 +162,11 @@ export class TaskService {
         position: 0,
         version: 1,
         parent_id: taskData.parent_id,
-        task_type: taskData.task_type || 'todo',
+        task_type: taskType,
         type_metadata: taskData.type_metadata || { category: 'general' },
         // v3.0 Graph fields
         node_type: nodeType as 'container' | 'item',
-        category: category as Task['category'],
+        category: category,
       }
 
       return await syncService.createTask(task)

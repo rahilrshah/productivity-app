@@ -14,8 +14,21 @@ import {
 } from '@/lib/agent/types'
 
 /**
- * AgentService - The Central Nervous System
- * Takes raw natural language and orchestrates database changes.
+ * AgentService - Legacy stateless agent
+ *
+ * @deprecated This agent is being replaced by StatefulAgentService in '@/lib/agent/stateful'.
+ * The stateful agent provides:
+ * - Multi-turn conversation support with slot-filling
+ * - Graph-aware intent classification (9 intents vs 5)
+ * - Context injection from active containers
+ * - Persistent conversation logging
+ *
+ * Migration guide:
+ * - Use `interactWithAgent()` from '@/lib/agent/stateful' instead of `processNaturalLanguage()`
+ * - The stateful agent uses `category` field instead of `task_type`
+ * - See `/api/agent/interact` for the server-side API
+ *
+ * This legacy agent will be removed in v4.0.
  */
 class AgentService {
   private static instance: AgentService
@@ -693,9 +706,16 @@ class AgentService {
 }
 
 // Export singleton instance
+/** @deprecated Use StatefulAgentService from '@/lib/agent/stateful' instead */
 export const agentService = AgentService.getInstance()
 
-// Export convenience function
+/**
+ * Process natural language input and execute task operations
+ *
+ * @deprecated Use `interactWithAgent()` from '@/lib/agent/stateful' instead.
+ * This function uses the legacy 5-intent system. The new stateful agent
+ * provides multi-turn conversations with slot-filling and 9 graph-aware intents.
+ */
 export async function processNaturalLanguage(input: string, userId: string): Promise<AgentResult> {
   return agentService.processInput(input, userId)
 }

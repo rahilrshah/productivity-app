@@ -39,12 +39,17 @@ export interface Task {
   updated_at: string
   deleted_at?: string
   // Multi-type fields
+  /** @deprecated Use `category` instead. Will be removed in v4.0 */
   task_type: TaskType
   type_metadata: TaskMetadata
   // v3.0 Graph fields
   node_type?: 'container' | 'item'
-  category?: 'course' | 'project' | 'club' | 'routine' | 'todo' | 'journal'
+  /** Primary field for task categorization. Prefer over task_type */
+  category?: TaskCategory
 }
+
+/** v3.0: Extended category type including routine and journal */
+export type TaskCategory = 'course' | 'project' | 'club' | 'routine' | 'todo' | 'journal'
 
 export type TaskType = 'course' | 'project' | 'club' | 'todo'
 
@@ -133,13 +138,15 @@ export interface CreateTaskDTO {
   start_date?: string          // v3.0: Deferral date
   parent_id?: string
   tags?: string[]
-  task_type: TaskType
-  type_metadata: TaskMetadata
+  /** @deprecated Use `category` instead. Auto-derived from category if not provided */
+  task_type?: TaskType
+  type_metadata?: TaskMetadata
   scheduled_for?: string
   duration_minutes?: number
   // v3.0 Graph fields
   node_type?: 'container' | 'item'
-  category?: 'course' | 'project' | 'club' | 'routine' | 'todo' | 'journal'
+  /** Primary field for task categorization. Required if task_type not provided */
+  category?: TaskCategory
 }
 
 export interface CreateCourseTaskDTO extends Omit<CreateTaskDTO, 'type_metadata' | 'task_type'> {
