@@ -127,16 +127,6 @@ export async function POST(request: NextRequest) {
     // For webhook, we'll accept any user_id for now (in production you'd want to verify this)
     // You can add user validation here later if needed
 
-    // Get the maximum position for ordering
-    const { data: maxPositionData } = await supabase
-      .from('tasks')
-      .select('position')
-      .eq('user_id', user_id)
-      .order('position', { ascending: false })
-      .limit(1)
-
-    const nextPosition = maxPositionData?.[0]?.position ? maxPositionData[0].position + 1 : 0
-
     // Create the task
     const taskData: TaskInsert = {
       user_id: user_id,
@@ -145,7 +135,6 @@ export async function POST(request: NextRequest) {
       priority: parsedTask.priority,
       due_date: parsedTask.due_date || null,
       tags: parsedTask.tags,
-      position: nextPosition,
       status: 'pending'
     }
 

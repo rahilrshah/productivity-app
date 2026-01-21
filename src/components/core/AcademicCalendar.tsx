@@ -8,6 +8,9 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { useOllama } from '@/lib/ollama'
+import { processNaturalLanguage } from '@/lib/agent'
 import { 
   Calendar,
   BookOpen,
@@ -18,7 +21,11 @@ import {
   GraduationCap,
   CalendarDays,
   Timer,
-  Target
+  Target,
+  Bot,
+  Sparkles,
+  Loader2,
+  Send
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -48,15 +55,24 @@ interface Semester {
 interface AcademicCalendarProps {
   tasks: Task[]
   onTaskCreate?: (task: Partial<Task>) => void
+  onTasksCreated?: (tasks: Task[]) => void
 }
 
-export function AcademicCalendar({ tasks, onTaskCreate }: AcademicCalendarProps) {
+export function AcademicCalendar({ tasks, onTaskCreate, onTasksCreated }: AcademicCalendarProps) {
+  const { isAvailable } = useOllama()
   const [currentSemester, setCurrentSemester] = useState<Semester | null>(null)
   const [semesters, setSemesters] = useState<Semester[]>([])
   const [academicEvents, setAcademicEvents] = useState<AcademicEvent[]>([])
   const [selectedWeek, setSelectedWeek] = useState(new Date())
   const [showSetup, setShowSetup] = useState(false)
   const [viewMode, setViewMode] = useState<'week' | 'month' | 'semester'>('week')
+  
+  // AI Assistant state
+  const [aiQuery, setAiQuery] = useState('')
+  const [isProcessingAI, setIsProcessingAI] = useState(false)
+  const [aiResponse, setAiResponse] = useState<string | null>(null)
+  const [showAIAssistant, setShowAIAssistant] = useState(false)
+  const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null)
 
   // Initialize with default semester if none exists
   useEffect(() => {
@@ -115,6 +131,58 @@ export function AcademicCalendar({ tasks, onTaskCreate }: AcademicCalendarProps)
     
     setAcademicEvents(sampleEvents)
   }, [])
+
+  // Check Ollama availability
+  useEffect(() => {
+    const checkAvailability = async () => {
+      const available = await isAvailable()
+      setOllamaAvailable(available)
+    }
+    checkAvailability()
+  }, [isAvailable])
+
+  // AI Assistant functions
+  const handleAIQuery = async () => {
+    if (!aiQuery.trim() || !ollamaAvailable) return
+
+    setIsProcessingAI(true)
+    setAiResponse(null)
+
+    try {
+      // Add context about current academic state
+      const contextualQuery = `Academic Calendar Context:
+- Current Semester: ${currentSemester?.name || 'Not set'}
+- Courses: ${Object.keys(courseGroups).join(', ') || 'None'}
+- Upcoming Deadlines: ${getUpcomingDeadlines().length}
+- Total Course Tasks: ${courseTasks.length}
+
+User Query: ${aiQuery}`
+
+      const result = await processNaturalLanguage(contextualQuery, 'local-user')
+      
+      if (result.success) {
+        setAiResponse(result.actionLog.join('\n'))
+        if (result.createdTasks.length > 0 && onTasksCreated) {
+          onTasksCreated(result.createdTasks)
+        }
+        setAiQuery('') // Clear on success
+      } else {
+        setAiResponse(`Error: ${result.errors.join(', ') || 'Unknown error occurred'}`)
+      }
+    } catch (error) {
+      console.error('AI query error:', error)
+      setAiResponse(`Error processing request: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsProcessingAI(false)
+    }
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleAIQuery()
+    }
+  }
 
   // Get course tasks from tasks list
   const courseTasks = tasks.filter(task => task.task_type === 'course')
@@ -285,6 +353,17 @@ export function AcademicCalendar({ tasks, onTaskCreate }: AcademicCalendarProps)
         </div>
         
         <div className="flex items-center gap-2">
+          <Button
+            variant={showAIAssistant ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowAIAssistant(!showAIAssistant)}
+            disabled={ollamaAvailable === false}
+            className="flex items-center gap-2"
+          >
+            <Bot className="h-4 w-4" />
+            AI Assistant
+          </Button>
+          
           <div className="flex items-center border rounded-md">
             <Button
               variant={viewMode === 'week' ? 'default' : 'ghost'}
@@ -317,6 +396,95 @@ export function AcademicCalendar({ tasks, onTaskCreate }: AcademicCalendarProps)
           </Button>
         </div>
       </div>
+
+      {/* AI Assistant */}
+      {showAIAssistant && (
+        <Card className={cn(
+          "border-2 shadow-lg",
+          ollamaAvailable === false ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20" :
+          "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/20"
+        )}>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Sparkles className="h-5 w-5 text-blue-600" />
+              Academic Calendar AI Assistant
+              {ollamaAvailable === false && (
+                <Badge variant="outline" className="text-amber-600 border-amber-300">
+                  Unavailable
+                </Badge>
+              )}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Ask about your courses, deadlines, schedule conflicts, or create tasks naturally
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {ollamaAvailable === false ? (
+              <div className="text-amber-800 dark:text-amber-200">
+                <p className="font-medium">AI Assistant is unavailable</p>
+                <p className="text-sm">Ollama is not running. Please start Ollama to use AI features.</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Textarea
+                    placeholder="e.g., 'When is my next CS101 assignment due?' or 'Schedule study time for Math exam next week' or 'Find conflicts in my schedule'"
+                    value={aiQuery}
+                    onChange={(e) => setAiQuery(e.target.value)}
+                    onKeyDown={handleKeyPress}
+                    disabled={isProcessingAI}
+                    className="min-h-[80px] resize-none"
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'} + Enter to send
+                    </span>
+                    <Button
+                      onClick={handleAIQuery}
+                      disabled={isProcessingAI || !aiQuery.trim()}
+                      size="sm"
+                    >
+                      {isProcessingAI ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-4 w-4 mr-2" />
+                          Ask AI
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                {aiResponse && (
+                  <div className="p-4 rounded-lg bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-800">
+                    <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                      <Bot className="h-4 w-4 text-blue-600" />
+                      AI Response
+                    </h4>
+                    <div className="text-sm whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                      {aiResponse}
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p><strong>Example queries:</strong></p>
+                  <ul className="space-y-1 pl-2">
+                    <li>• "What assignments are due this week?"</li>
+                    <li>• "Schedule 2 hours of study time for Biology exam"</li>
+                    <li>• "When is my next CS101 deadline?"</li>
+                    <li>• "Block time for project work next Friday"</li>
+                  </ul>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Current Week Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

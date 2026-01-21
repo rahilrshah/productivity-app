@@ -24,7 +24,7 @@ export interface Task {
   embedding?: number[]
   tags: string[]
   dependencies: string[]
-  position: number
+  position?: number
   version: number
   version_history?: string
   created_at: string
@@ -75,6 +75,8 @@ export interface TodoMetadata {
   category?: string
   location?: string
   context?: string
+  scheduled_time?: string
+  duration_minutes?: number
 }
 
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'archived'
@@ -119,6 +121,8 @@ export interface CreateTaskDTO {
   tags?: string[]
   task_type: TaskType
   type_metadata: TaskMetadata
+  scheduled_for?: string
+  duration_minutes?: number
 }
 
 export interface CreateCourseTaskDTO extends Omit<CreateTaskDTO, 'type_metadata' | 'task_type'> {

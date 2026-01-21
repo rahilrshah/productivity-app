@@ -3,6 +3,7 @@
 import { Task, CreateTaskDTO, CourseMetadata, ProjectMetadata, TodoMetadata } from '@/types'
 import { getOllamaClient } from '@/lib/ollama'
 import { taskService } from '@/lib/taskService'
+import { unifiedTaskScheduler } from '@/lib/scheduling'
 import {
   AgentIntent,
   AgentResult,
@@ -60,7 +61,7 @@ class AgentService {
           break
 
         case 'SCHEDULE_REQUEST':
-          actionLog.push('Schedule request handling coming soon')
+          await this.handleScheduleRequest(input, userId, actionLog, createdTasks, actions)
           break
 
         case 'UNKNOWN':
@@ -354,6 +355,307 @@ class AgentService {
 
     if (taskData.due_date) {
       actionLog.push(`Due: ${new Date(taskData.due_date).toLocaleDateString()}`)
+    }
+  }
+
+  /**
+   * Handle schedule requests - reschedule, find slots, block time
+   */
+  private async handleScheduleRequest(
+    input: string,
+    userId: string,
+    actionLog: string[],
+    createdTasks: Task[],
+    actions: AgentAction[]
+  ): Promise<void> {
+    const client = getOllamaClient()
+
+    // Extract structured schedule data
+    actionLog.push('Analyzing schedule request...')
+    const scheduleData = await client.extractScheduleData(input)
+
+    if (!scheduleData) {
+      throw new Error('Could not understand schedule request')
+    }
+
+    actionLog.push(`Schedule action: ${scheduleData.action}`)
+
+    switch (scheduleData.action) {
+      case 'reschedule':
+        await this.handleReschedule(scheduleData, userId, actionLog, actions)
+        break
+
+      case 'find_slot':
+        await this.handleFindSlot(scheduleData, userId, actionLog, createdTasks, actions)
+        break
+
+      case 'block_time':
+        await this.handleBlockTime(scheduleData, userId, actionLog, createdTasks, actions)
+        break
+
+      case 'schedule_new':
+        await this.handleScheduleNew(scheduleData, userId, actionLog, createdTasks, actions)
+        break
+
+      default:
+        actionLog.push('Unknown schedule action, treating as time block request')
+        await this.handleBlockTime(scheduleData, userId, actionLog, createdTasks, actions)
+    }
+  }
+
+  /**
+   * Reschedule an existing task
+   */
+  private async handleReschedule(
+    scheduleData: any,
+    userId: string,
+    actionLog: string[],
+    actions: AgentAction[]
+  ): Promise<void> {
+    actionLog.push('Searching for existing task to reschedule...')
+
+    // Find the task by title (we'd need to search through existing tasks)
+    // For now, we'll log the action and let the UI handle finding the specific task
+    if (scheduleData.taskTitle) {
+      actionLog.push(`Looking for task: "${scheduleData.taskTitle}"`)
+    }
+
+    if (scheduleData.newDate || scheduleData.newTime) {
+      const targetTime = this.buildTargetDateTime(scheduleData.newDate, scheduleData.newTime)
+      actionLog.push(`Target time: ${targetTime ? targetTime.toLocaleString() : 'flexible'}`)
+    }
+
+    actions.push({
+      type: 'UPDATE_TASK',
+      description: `Reschedule "${scheduleData.taskTitle || 'task'}" to ${scheduleData.newDate || 'new time'}`,
+      payload: {
+        taskType: 'todo',
+        title: scheduleData.taskTitle || 'Reschedule request',
+        metadata: {
+          action: 'reschedule',
+          originalTitle: scheduleData.taskTitle,
+          newDate: scheduleData.newDate,
+          newTime: scheduleData.newTime,
+          reason: scheduleData.reason
+        } as any
+      }
+    })
+
+    actionLog.push(`Reschedule request logged for: ${scheduleData.taskTitle || 'task'}`)
+  }
+
+  /**
+   * Find available time slot for an activity
+   */
+  private async handleFindSlot(
+    scheduleData: any,
+    userId: string,
+    actionLog: string[],
+    createdTasks: Task[],
+    actions: AgentAction[]
+  ): Promise<void> {
+    actionLog.push('Finding available time slot...')
+
+    const activity = scheduleData.taskTitle || 'Activity'
+    const duration = scheduleData.duration || 60
+    
+    actionLog.push(`Activity: ${activity} (${duration} minutes)`)
+
+    if (scheduleData.newDate) {
+      actionLog.push(`Preferred date: ${new Date(scheduleData.newDate).toLocaleDateString()}`)
+    }
+
+    if (scheduleData.preferences?.timeOfDay) {
+      actionLog.push(`Preferred time: ${scheduleData.preferences.timeOfDay}`)
+    }
+
+    // Create a task for the time slot request
+    const todoMetadata: TodoMetadata = {
+      category: 'scheduling',
+      context: 'Time slot request',
+      location: scheduleData.preferences?.location,
+      duration_minutes: duration
+    }
+
+    const taskDTO: CreateTaskDTO = {
+      title: `${activity} - Time Slot Request`,
+      content: scheduleData.reason ? `Reason: ${scheduleData.reason}` : 'Find available time slot',
+      task_type: 'todo',
+      type_metadata: todoMetadata,
+      priority: 6,
+      due_date: scheduleData.newDate,
+      tags: ['scheduling', 'time-slot', scheduleData.preferences?.timeOfDay].filter(Boolean) as string[],
+      duration_minutes: duration
+    }
+
+    actions.push({
+      type: 'CREATE_TASK',
+      description: `Find time slot for: ${activity}`,
+      payload: {
+        taskType: 'todo',
+        title: taskDTO.title,
+        metadata: todoMetadata,
+        priority: 6,
+        dueDate: scheduleData.newDate,
+        tags: taskDTO.tags
+      }
+    })
+
+    const task = await taskService.createTask(taskDTO)
+    createdTasks.push(task)
+    actionLog.push(`Created time slot request for: ${activity}`)
+  }
+
+  /**
+   * Block time for focused work
+   */
+  private async handleBlockTime(
+    scheduleData: any,
+    userId: string,
+    actionLog: string[],
+    createdTasks: Task[],
+    actions: AgentAction[]
+  ): Promise<void> {
+    actionLog.push('Creating time block...')
+
+    const activity = scheduleData.taskTitle || 'Focused Work'
+    const duration = scheduleData.duration || 120 // Default 2 hours for time blocking
+
+    actionLog.push(`Time block: ${activity} (${duration} minutes)`)
+
+    if (scheduleData.newDate) {
+      actionLog.push(`Date: ${new Date(scheduleData.newDate).toLocaleDateString()}`)
+    }
+
+    // Determine task type based on activity description
+    let taskType: 'course' | 'project' | 'club' | 'todo' = 'todo'
+    let metadata: any = { category: 'time-block', context: 'Focused work session' }
+
+    const activityLower = activity.toLowerCase()
+    if (activityLower.includes('study') || activityLower.includes('course') || activityLower.includes('assignment')) {
+      taskType = 'course'
+      metadata = {
+        course_code: 'TIMEBLOCK',
+        semester: 'Current',
+        assignment_type: 'Study Session',
+        credits: 0
+      } as CourseMetadata
+    } else if (activityLower.includes('project') || activityLower.includes('development') || activityLower.includes('coding')) {
+      taskType = 'project'
+      metadata = {
+        project_type: 'personal' as const,
+        methodology: 'Timeboxed',
+        phase: 'Execution'
+      } as ProjectMetadata
+    }
+
+    const taskDTO: CreateTaskDTO = {
+      title: `🎯 ${activity}`,
+      content: `Time block session${scheduleData.reason ? ` - ${scheduleData.reason}` : ''}`,
+      task_type: taskType,
+      type_metadata: metadata,
+      priority: 7,
+      due_date: scheduleData.newDate,
+      tags: ['time-block', 'focus', scheduleData.preferences?.timeOfDay].filter(Boolean) as string[],
+      duration_minutes: duration
+    }
+
+    actions.push({
+      type: 'CREATE_TASK',
+      description: `Block time for: ${activity}`,
+      payload: {
+        taskType,
+        title: taskDTO.title,
+        metadata,
+        priority: 7,
+        dueDate: scheduleData.newDate,
+        tags: taskDTO.tags
+      }
+    })
+
+    const task = await taskService.createTask(taskDTO)
+    createdTasks.push(task)
+    actionLog.push(`Created time block: ${activity}`)
+  }
+
+  /**
+   * Schedule a new activity/task
+   */
+  private async handleScheduleNew(
+    scheduleData: any,
+    userId: string,
+    actionLog: string[],
+    createdTasks: Task[],
+    actions: AgentAction[]
+  ): Promise<void> {
+    actionLog.push('Creating new scheduled task...')
+
+    const activity = scheduleData.taskTitle || 'New Task'
+    const duration = scheduleData.duration || 60
+
+    actionLog.push(`New task: ${activity}`)
+
+    if (scheduleData.newDate && scheduleData.newTime) {
+      const targetDateTime = this.buildTargetDateTime(scheduleData.newDate, scheduleData.newTime)
+      if (targetDateTime) {
+        actionLog.push(`Scheduled for: ${targetDateTime.toLocaleString()}`)
+      }
+    }
+
+    const todoMetadata: TodoMetadata = {
+      category: 'scheduled',
+      context: 'Direct scheduling',
+      scheduled_time: scheduleData.newTime,
+      duration_minutes: duration
+    }
+
+    const taskDTO: CreateTaskDTO = {
+      title: activity,
+      content: scheduleData.reason ? `Note: ${scheduleData.reason}` : undefined,
+      task_type: 'todo',
+      type_metadata: todoMetadata,
+      priority: 6,
+      due_date: scheduleData.newDate,
+      tags: ['scheduled', 'appointment', scheduleData.preferences?.timeOfDay].filter(Boolean) as string[],
+      duration_minutes: duration
+    }
+
+    actions.push({
+      type: 'CREATE_TASK',
+      description: `Schedule: ${activity}`,
+      payload: {
+        taskType: 'todo',
+        title: activity,
+        metadata: todoMetadata,
+        priority: 6,
+        dueDate: scheduleData.newDate,
+        tags: taskDTO.tags
+      }
+    })
+
+    const task = await taskService.createTask(taskDTO)
+    createdTasks.push(task)
+    actionLog.push(`Scheduled: ${activity}`)
+  }
+
+  /**
+   * Helper to build target datetime from date and time strings
+   */
+  private buildTargetDateTime(dateStr?: string, timeStr?: string): Date | null {
+    if (!dateStr) return null
+
+    try {
+      const date = new Date(dateStr)
+      
+      if (timeStr) {
+        const [hours, minutes] = timeStr.split(':').map(Number)
+        date.setHours(hours, minutes, 0, 0)
+      }
+
+      return date
+    } catch (error) {
+      console.error('Error building target datetime:', error)
+      return null
     }
   }
 }

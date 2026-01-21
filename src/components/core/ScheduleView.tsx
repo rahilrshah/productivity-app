@@ -5,7 +5,10 @@ import { Task } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Textarea } from '@/components/ui/textarea'
 import { taskScheduler, ScheduledTask, TimeBlock } from '@/lib/scheduling'
+import { useOllama } from '@/lib/ollama'
+import { processNaturalLanguage } from '@/lib/agent'
 import { cn } from '@/lib/utils'
 import { 
   Calendar,
@@ -13,21 +16,35 @@ import {
   ChevronLeft,
   ChevronRight,
   Settings,
-  RefreshCw
+  RefreshCw,
+  Bot,
+  Sparkles,
+  Loader2,
+  Send
 } from 'lucide-react'
 
 interface ScheduleViewProps {
   tasks: Task[]
   onTaskUpdate: (id: string, updates: Partial<Task>) => void
+  onTasksCreated?: (tasks: Task[]) => void
 }
 
-export function ScheduleView({ tasks }: ScheduleViewProps) {
+export function ScheduleView({ tasks, onTasksCreated }: ScheduleViewProps) {
+  const { isAvailable } = useOllama()
   const [selectedDate, setSelectedDate] = useState(new Date())
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
   const [unscheduledTasks, setUnscheduledTasks] = useState<Task[]>([])
   const [timeBlocks, setTimeBlocks] = useState<TimeBlock[]>([])
   const [recommendations, setRecommendations] = useState<string[]>([])
   const [typeAnalysis, setTypeAnalysis] = useState<{ [type: string]: { scheduled: number; total: number; workload: number; efficiency: number } }>({})
+  
+  // AI Assistant state
+  const [aiQuery, setAiQuery] = useState('')
+  const [isProcessingAI, setIsProcessingAI] = useState(false)
+  const [aiResponse, setAiResponse] = useState<string | null>(null)
+  const [showAIAssistant, setShowAIAssistant] = useState(false)
+  const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null)
+
   const [userPreferences] = useState({
     work_hours_start: '09:00',
     work_hours_end: '17:00',
@@ -89,6 +106,61 @@ export function ScheduleView({ tasks }: ScheduleViewProps) {
   useEffect(() => {
     generateSchedule()
   }, [tasks, selectedDate])
+
+  // Check Ollama availability
+  useEffect(() => {
+    const checkAvailability = async () => {
+      const available = await isAvailable()
+      setOllamaAvailable(available)
+    }
+    checkAvailability()
+  }, [isAvailable])
+
+  // AI Assistant functions
+  const handleAIQuery = async () => {
+    if (!aiQuery.trim() || !ollamaAvailable) return
+
+    setIsProcessingAI(true)
+    setAiResponse(null)
+
+    try {
+      // Add context about current schedule state
+      const contextualQuery = `Schedule Context:
+- Date: ${selectedDate.toLocaleDateString()}
+- Scheduled Tasks: ${scheduledTasks.length}
+- Unscheduled Tasks: ${unscheduledTasks.length}
+- Time Blocks: ${timeBlocks.length}
+- Task Types: ${Object.keys(typeAnalysis).join(', ') || 'None'}
+
+User Query: ${aiQuery}`
+
+      const result = await processNaturalLanguage(contextualQuery, 'local-user')
+      
+      if (result.success) {
+        setAiResponse(result.actionLog.join('\n'))
+        if (result.createdTasks.length > 0 && onTasksCreated) {
+          onTasksCreated(result.createdTasks)
+        }
+        setAiQuery('') // Clear on success
+        // Regenerate schedule with new tasks
+        setTimeout(() => generateSchedule(), 500)
+      } else {
+        setAiResponse(`Error: ${result.errors.join(', ') || 'Unknown error occurred'}`)
+      }
+    } catch (error) {
+      console.error('AI query error:', error)
+      setAiResponse(`Error processing request: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsProcessingAI(false)
+    }
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleAIQuery()
+    }
+  }
 
   const navigateDate = (direction: 'prev' | 'next') => {
     const newDate = new Date(selectedDate)
@@ -160,6 +232,16 @@ export function ScheduleView({ tasks }: ScheduleViewProps) {
         
         <div className="flex items-center space-x-2">
           <Button
+            variant={showAIAssistant ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowAIAssistant(!showAIAssistant)}
+            disabled={ollamaAvailable === false}
+          >
+            <Bot className="h-4 w-4 mr-2" />
+            AI Assistant
+          </Button>
+          
+          <Button
             variant="outline"
             size="sm"
             onClick={generateSchedule}
@@ -177,6 +259,95 @@ export function ScheduleView({ tasks }: ScheduleViewProps) {
           </Button>
         </div>
       </div>
+
+      {/* AI Assistant */}
+      {showAIAssistant && (
+        <Card className={cn(
+          "border-2 shadow-lg",
+          ollamaAvailable === false ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20" :
+          "border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/20"
+        )}>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Sparkles className="h-5 w-5 text-blue-600" />
+              Schedule AI Assistant
+              {ollamaAvailable === false && (
+                <Badge variant="outline" className="text-amber-600 border-amber-300">
+                  Unavailable
+                </Badge>
+              )}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Optimize your schedule, find time slots, or resolve conflicts with AI
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {ollamaAvailable === false ? (
+              <div className="text-amber-800 dark:text-amber-200">
+                <p className="font-medium">AI Assistant is unavailable</p>
+                <p className="text-sm">Ollama is not running. Please start Ollama to use AI features.</p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Textarea
+                    placeholder="e.g., 'Reschedule my meeting to tomorrow afternoon' or 'Find 2 hours for deep work this week' or 'What conflicts do I have today?'"
+                    value={aiQuery}
+                    onChange={(e) => setAiQuery(e.target.value)}
+                    onKeyDown={handleKeyPress}
+                    disabled={isProcessingAI}
+                    className="min-h-[80px] resize-none"
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'} + Enter to send
+                    </span>
+                    <Button
+                      onClick={handleAIQuery}
+                      disabled={isProcessingAI || !aiQuery.trim()}
+                      size="sm"
+                    >
+                      {isProcessingAI ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-4 w-4 mr-2" />
+                          Optimize
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                {aiResponse && (
+                  <div className="p-4 rounded-lg bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-800">
+                    <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
+                      <Bot className="h-4 w-4 text-blue-600" />
+                      AI Response
+                    </h4>
+                    <div className="text-sm whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                      {aiResponse}
+                    </div>
+                  </div>
+                )}
+
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p><strong>Example queries:</strong></p>
+                  <ul className="space-y-1 pl-2">
+                    <li>• "Find available slots for a 90-minute study session"</li>
+                    <li>• "Reschedule my project deadline to next week"</li>
+                    <li>• "Block time for coding tomorrow morning"</li>
+                    <li>• "What's my busiest day this week?"</li>
+                  </ul>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Schedule Grid */}
       <div className="grid gap-4">

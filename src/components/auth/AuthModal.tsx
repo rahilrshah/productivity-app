@@ -38,10 +38,15 @@ export function AuthModal() {
       return
     }
 
+    console.log('AuthModal: Starting sign in process')
     const result = await signIn(formData.email, formData.password)
+    console.log('AuthModal: Sign in result:', result)
     
     if (!result.success) {
       setError(result.error || 'Sign in failed')
+      console.error('AuthModal: Sign in failed:', result.error)
+    } else {
+      console.log('AuthModal: Sign in successful!')
     }
 
     setLoading(false)
@@ -70,10 +75,15 @@ export function AuthModal() {
       return
     }
 
+    console.log('AuthModal: Starting sign up process')
     const result = await signUp(formData.email, formData.password)
+    console.log('AuthModal: Sign up result:', result)
     
     if (!result.success) {
       setError(result.error || 'Sign up failed')
+      console.error('AuthModal: Sign up failed:', result.error)
+    } else {
+      console.log('AuthModal: Sign up successful!')
     }
 
     setLoading(false)

@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Calendar, List, GraduationCap, Settings, MessageSquare, LayoutGrid } from 'lucide-react'
 import { Task } from '@/types'
 
-function ScheduleViewWrapper() {
+function ScheduleViewWrapper({ onTasksCreated }: { onTasksCreated?: (tasks: Task[]) => void }) {
   const [tasks, setTasks] = useState<Task[]>([])
 
   useEffect(() => {
@@ -43,7 +43,13 @@ function ScheduleViewWrapper() {
     )
   }
 
-  return <ScheduleView tasks={tasks} onTaskUpdate={handleTaskUpdate} />
+  return (
+    <ScheduleView 
+      tasks={tasks} 
+      onTaskUpdate={handleTaskUpdate}
+      onTasksCreated={onTasksCreated}
+    />
+  )
 }
 
 export default function HomePage() {
@@ -186,6 +192,9 @@ export default function HomePage() {
                   }
                   setAllTasks(prev => [...prev, newTask])
                 }}
+                onTasksCreated={(tasks) => {
+                  setAllTasks(prev => [...prev, ...tasks])
+                }}
               />
             ) : currentView === 'table-builder' ? (
               <TableBuilder 
@@ -196,7 +205,11 @@ export default function HomePage() {
                 onCancel={() => setCurrentView('dashboard')}
               />
             ) : (
-              <ScheduleViewWrapper />
+              <ScheduleViewWrapper 
+                onTasksCreated={(tasks) => {
+                  setAllTasks(prev => [...prev, ...tasks])
+                }}
+              />
             )}
           </Suspense>
         </div>

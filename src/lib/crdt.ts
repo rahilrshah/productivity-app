@@ -246,7 +246,7 @@ class CRDTEngine {
   }
 
   getTasks(): Task[] {
-    return Object.values(this.state.tasks).sort((a, b) => a.position - b.position)
+    return Object.values(this.state.tasks).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
   }
 
   getTask(taskId: string): Task | undefined {

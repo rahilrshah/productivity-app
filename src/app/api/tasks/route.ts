@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       .select('*')
       .eq('user_id', user.id)
       .is('deleted_at', null)
-      .order('position', { ascending: true })
+      .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
     if (status) {
@@ -70,16 +70,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 })
     }
 
-    // Get the maximum position for ordering
-    const { data: maxPositionData } = await supabase
-      .from('tasks')
-      .select('position')
-      .eq('user_id', user.id)
-      .order('position', { ascending: false })
-      .limit(1)
-
-    const nextPosition = maxPositionData?.[0]?.position ? maxPositionData[0].position + 1 : 0
-
     const taskData: TaskInsert = {
       user_id: user.id,
       title,
@@ -88,7 +78,6 @@ export async function POST(request: NextRequest) {
       due_date: due_date || null,
       tags: tags || [],
       parent_id: parent_id || null,
-      position: nextPosition,
       status: 'pending',
       task_type: task_type || 'todo',
       type_metadata: type_metadata || {}

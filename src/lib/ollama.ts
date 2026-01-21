@@ -48,12 +48,15 @@ class OllamaClient {
 
   constructor(baseUrl?: string) {
     this.baseUrl = baseUrl || process.env.NEXT_PUBLIC_OLLAMA_BASE_URL || 'http://localhost:11434'
-    this.timeout = 30000 // 30 seconds
+    console.log('OllamaClient initialized with baseUrl:', this.baseUrl)
+    this.timeout = 60000 // 60 seconds - longer timeout for complex requests
   }
 
   private async fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+    const timeoutId = setTimeout(() => {
+      controller.abort()
+    }, this.timeout)
 
     try {
       const response = await fetch(url, {
@@ -68,6 +71,17 @@ class OllamaClient {
       return response
     } catch (error) {
       clearTimeout(timeoutId)
+      
+      // Provide better error messages
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          throw new Error(`Request timeout after ${this.timeout / 1000} seconds. Please check if Ollama is running and responsive.`)
+        }
+        if (error.message.includes('fetch')) {
+          throw new Error(`Cannot connect to Ollama at ${this.baseUrl}. Please check if Ollama is running.`)
+        }
+      }
+      
       throw error
     }
   }
@@ -524,6 +538,224 @@ Respond ONLY with valid JSON, no other text.`
       return null
     }
   }
+
+  async extractScheduleData(text: string, model: string = 'llama3.1:8b'): Promise<{
+    action: 'reschedule' | 'block_time' | 'find_slot' | 'schedule_new'
+    taskTitle?: string
+    taskId?: string
+    newDate?: string
+    newTime?: string
+    duration?: number
+    reason?: string
+    preferences?: {
+      timeOfDay?: 'morning' | 'afternoon' | 'evening'
+      dayOfWeek?: string
+      beforeTask?: string
+      afterTask?: string
+    }
+  } | null> {
+    const systemPrompt = `You are an expert at understanding scheduling requests and time management.
+
+Extract scheduling information from the provided text. Return a JSON object with:
+- action: One of "reschedule", "block_time", "find_slot", or "schedule_new"
+- taskTitle: Title/description of the task being scheduled (if creating new or unclear which task)
+- taskId: ID of existing task being rescheduled (if mentioned)
+- newDate: ISO date string if a specific date is mentioned (format: YYYY-MM-DD)
+- newTime: Time in HH:MM format if specific time mentioned
+- duration: Duration in minutes if specified
+- reason: Reason for scheduling/rescheduling if provided
+- preferences: Object with scheduling preferences:
+  - timeOfDay: "morning", "afternoon", or "evening" if mentioned
+  - dayOfWeek: Specific day name if mentioned
+  - beforeTask: Name of task this should be scheduled before
+  - afterTask: Name of task this should be scheduled after
+
+Examples of what to extract:
+- "Reschedule my CS101 assignment to tomorrow" → action: "reschedule", taskTitle: "CS101 assignment", newDate: tomorrow's date
+- "Find time for gym this Friday afternoon" → action: "find_slot", taskTitle: "gym", newDate: Friday's date, timeOfDay: "afternoon"
+- "Block 2 hours for project work next Monday morning" → action: "block_time", taskTitle: "project work", duration: 120, newDate: Monday's date, timeOfDay: "morning"
+- "Schedule dentist appointment for 3pm tomorrow" → action: "schedule_new", taskTitle: "dentist appointment", newTime: "15:00", newDate: tomorrow's date
+
+Respond ONLY with valid JSON, no other text.`
+
+    try {
+      const response = await this.chat(model, [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text.substring(0, 2000) }
+      ], { temperature: 0.2 }) as OllamaResponse
+
+      const content = response.message.content.trim()
+      
+      // Try to extract JSON more robustly
+      let jsonMatch = content.match(/\{[\s\S]*\}/)
+      
+      // If no JSON found, try to find it within markdown code blocks
+      if (!jsonMatch) {
+        const codeBlockMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
+        if (codeBlockMatch) {
+          jsonMatch = [codeBlockMatch[1]]
+        }
+      }
+
+      if (jsonMatch) {
+        // Clean the JSON string - remove any non-JSON text
+        let jsonStr = jsonMatch[0].trim()
+
+        // Try to find just the JSON object part
+        const startBrace = jsonStr.indexOf('{')
+        const lastBrace = jsonStr.lastIndexOf('}')
+
+        if (startBrace !== -1 && lastBrace !== -1 && lastBrace > startBrace) {
+          jsonStr = jsonStr.substring(startBrace, lastBrace + 1)
+        }
+
+        try {
+          const parsed = JSON.parse(jsonStr)
+
+          // Validate action
+          if (!['reschedule', 'block_time', 'find_slot', 'schedule_new'].includes(parsed.action)) {
+            parsed.action = 'find_slot' // Default fallback
+          }
+
+          // Convert relative dates to actual dates
+          if (parsed.newDate) {
+            parsed.newDate = this.convertRelativeDate(parsed.newDate)
+          }
+
+          return {
+            action: parsed.action,
+            taskTitle: parsed.taskTitle,
+            taskId: parsed.taskId,
+            newDate: parsed.newDate,
+            newTime: parsed.newTime,
+            duration: parsed.duration,
+            reason: parsed.reason,
+            preferences: parsed.preferences || {}
+          }
+        } catch (parseError) {
+          console.error('JSON parse error:', parseError, 'Content:', jsonMatch[0])
+
+          // Try to clean up common JSON issues
+          const cleanedJson = jsonStr
+            .replace(/'/g, '"')  // Replace single quotes with double quotes
+            .replace(/(\w+):/g, '"$1":')  // Add quotes around unquoted keys
+            .replace(/,\s*}/g, '}')  // Remove trailing commas
+            .replace(/,\s*]/g, ']')  // Remove trailing commas in arrays
+          
+          try {
+            const parsed = JSON.parse(cleanedJson)
+            return {
+              action: parsed.action || 'find_slot',
+              taskTitle: parsed.taskTitle,
+              taskId: parsed.taskId,
+              newDate: parsed.newDate,
+              newTime: parsed.newTime,
+              duration: parsed.duration,
+              reason: parsed.reason,
+              preferences: parsed.preferences || {}
+            }
+          } catch (secondParseError) {
+            console.error('Second JSON parse failed:', secondParseError)
+            
+            // Final fallback: try to extract basic info using regex
+            const actionMatch = content.match(/"action"\s*:\s*"([^"]+)"/i)
+            const titleMatch = content.match(/"taskTitle"\s*:\s*"([^"]+)"/i)
+            const durationMatch = content.match(/"duration"\s*:\s*(\d+)/i)
+            const dateMatch = content.match(/"newDate"\s*:\s*"([^"]+)"/i)
+            const timeMatch = content.match(/"newTime"\s*:\s*"([^"]+)"/i)
+            
+            return {
+              action: (actionMatch?.[1] as any) || 'find_slot',
+              taskTitle: titleMatch?.[1] || 'Scheduling request',
+              taskId: undefined,
+              newDate: dateMatch?.[1],
+              newTime: timeMatch?.[1],
+              duration: durationMatch?.[1] ? parseInt(durationMatch[1]) : undefined,
+              reason: undefined,
+              preferences: {}
+            }
+          }
+        }
+      }
+
+      // Last fallback - create a basic schedule request
+      return {
+        action: 'find_slot',
+        taskTitle: 'Schedule request',
+        taskId: undefined,
+        newDate: undefined,
+        newTime: undefined,
+        duration: 60,
+        reason: content.length > 0 ? content : undefined,
+        preferences: {}
+      }
+    } catch (error) {
+      console.error('Error extracting schedule data:', error)
+      return null
+    }
+  }
+
+  private convertRelativeDate(dateStr: string): string {
+    const today = new Date()
+    const lowerStr = dateStr.toLowerCase()
+    
+    if (lowerStr.includes('today')) {
+      return today.toISOString().split('T')[0]
+    } else if (lowerStr.includes('tomorrow')) {
+      const tomorrow = new Date(today)
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      return tomorrow.toISOString().split('T')[0]
+    } else if (lowerStr.includes('monday')) {
+      const nextMonday = new Date(today)
+      const daysUntilMonday = (1 - nextMonday.getDay() + 7) % 7
+      if (daysUntilMonday === 0) nextMonday.setDate(nextMonday.getDate() + 7)
+      else nextMonday.setDate(nextMonday.getDate() + daysUntilMonday)
+      return nextMonday.toISOString().split('T')[0]
+    } else if (lowerStr.includes('tuesday')) {
+      const nextTuesday = new Date(today)
+      const daysUntilTuesday = (2 - nextTuesday.getDay() + 7) % 7
+      if (daysUntilTuesday === 0) nextTuesday.setDate(nextTuesday.getDate() + 7)
+      else nextTuesday.setDate(nextTuesday.getDate() + daysUntilTuesday)
+      return nextTuesday.toISOString().split('T')[0]
+    } else if (lowerStr.includes('wednesday')) {
+      const nextWednesday = new Date(today)
+      const daysUntilWednesday = (3 - nextWednesday.getDay() + 7) % 7
+      if (daysUntilWednesday === 0) nextWednesday.setDate(nextWednesday.getDate() + 7)
+      else nextWednesday.setDate(nextWednesday.getDate() + daysUntilWednesday)
+      return nextWednesday.toISOString().split('T')[0]
+    } else if (lowerStr.includes('thursday')) {
+      const nextThursday = new Date(today)
+      const daysUntilThursday = (4 - nextThursday.getDay() + 7) % 7
+      if (daysUntilThursday === 0) nextThursday.setDate(nextThursday.getDate() + 7)
+      else nextThursday.setDate(nextThursday.getDate() + daysUntilThursday)
+      return nextThursday.toISOString().split('T')[0]
+    } else if (lowerStr.includes('friday')) {
+      const nextFriday = new Date(today)
+      const daysUntilFriday = (5 - nextFriday.getDay() + 7) % 7
+      if (daysUntilFriday === 0) nextFriday.setDate(nextFriday.getDate() + 7)
+      else nextFriday.setDate(nextFriday.getDate() + daysUntilFriday)
+      return nextFriday.toISOString().split('T')[0]
+    } else if (lowerStr.includes('saturday')) {
+      const nextSaturday = new Date(today)
+      const daysUntilSaturday = (6 - nextSaturday.getDay() + 7) % 7
+      if (daysUntilSaturday === 0) nextSaturday.setDate(nextSaturday.getDate() + 7)
+      else nextSaturday.setDate(nextSaturday.getDate() + daysUntilSaturday)
+      return nextSaturday.toISOString().split('T')[0]
+    } else if (lowerStr.includes('sunday')) {
+      const nextSunday = new Date(today)
+      const daysUntilSunday = (7 - nextSunday.getDay()) % 7
+      if (daysUntilSunday === 0) nextSunday.setDate(nextSunday.getDate() + 7)
+      else nextSunday.setDate(nextSunday.getDate() + daysUntilSunday)
+      return nextSunday.toISOString().split('T')[0]
+    } else if (lowerStr.includes('next week')) {
+      const nextWeek = new Date(today)
+      nextWeek.setDate(nextWeek.getDate() + 7)
+      return nextWeek.toISOString().split('T')[0]
+    }
+    
+    // If it's already in a valid format or unrecognized, return as-is
+    return dateStr
+  }
 }
 
 // Global Ollama client instance
@@ -551,5 +783,6 @@ export function useOllama() {
     classifyIntent: (text: string, model?: string) => client.classifyIntent(text, model),
     extractSyllabusData: (text: string, model?: string) => client.extractSyllabusData(text, model),
     extractProjectData: (text: string, model?: string) => client.extractProjectData(text, model),
+    extractScheduleData: (text: string, model?: string) => client.extractScheduleData(text, model),
   }
 }
