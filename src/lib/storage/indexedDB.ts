@@ -15,7 +15,7 @@ interface OfflineChange {
   entity_id: string
   data: any
   timestamp: string
-  synced: boolean
+  synced: number // 0 = false, 1 = true (booleans aren't valid IDBKey types)
 }
 
 class IndexedDBService {
@@ -166,7 +166,7 @@ class IndexedDBService {
       ...change,
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
-      synced: false
+      synced: 0 // 0 = not synced
     }
 
     return new Promise((resolve, reject) => {
@@ -189,7 +189,7 @@ class IndexedDBService {
       const transaction = this.db!.transaction([this.stores.offline_changes], 'readonly')
       const store = transaction.objectStore(this.stores.offline_changes)
       const index = store.index('synced')
-      const request = index.getAll(IDBKeyRange.only(false)) // Get unsynced changes
+      const request = index.getAll(0) // Get unsynced changes (0 = false, as booleans aren't valid IDBKey)
 
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
@@ -213,7 +213,7 @@ class IndexedDBService {
         getRequest.onsuccess = () => {
           const change = getRequest.result
           if (change) {
-            change.synced = true
+            change.synced = 1 // 1 = synced
             const putRequest = store.put(change)
             putRequest.onsuccess = () => {
               completed++
@@ -256,7 +256,7 @@ class IndexedDBService {
         const cursor = request.result
         if (cursor) {
           const change = cursor.value as OfflineChange
-          if (change.synced) {
+          if (change.synced === 1) {
             cursor.delete()
           }
           cursor.continue()

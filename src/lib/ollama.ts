@@ -579,6 +579,21 @@ Respond ONLY with valid JSON, no other text.`
         try {
           const parsed = JSON.parse(jsonStr)
 
+          // Handle case where LLM returns array instead of object
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const firstItem = parsed[0]
+            return {
+              action: firstItem.action || 'find_slot',
+              taskTitle: firstItem.taskTitle,
+              taskId: firstItem.taskId,
+              newDate: firstItem.newDate ? this.convertRelativeDate(firstItem.newDate) : undefined,
+              newTime: firstItem.newTime,
+              duration: firstItem.duration,
+              reason: firstItem.reason,
+              preferences: firstItem.preferences || {}
+            }
+          }
+
           // Validate action
           if (!['reschedule', 'block_time', 'find_slot', 'schedule_new'].includes(parsed.action)) {
             parsed.action = 'find_slot' // Default fallback

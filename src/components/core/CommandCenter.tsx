@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent } from '@/components/ui/card'
@@ -15,28 +15,50 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
+  History,
+  MessageSquare,
+  X,
 } from 'lucide-react'
-import { processNaturalLanguage } from '@/lib/agent'
 import { useOllama } from '@/lib/ollama'
 import { Task } from '@/types'
-import { AgentResult } from '@/lib/agent/types'
+import { AgentInteractResponse, AgentContextState, GraphNode } from '@/types/graph'
 
 interface CommandCenterProps {
   onTasksCreated?: (tasks: Task[]) => void
 }
 
-// Default user ID for single-user mode (no auth required)
-const DEFAULT_USER_ID = 'local-user'
+// Conversation message type
+interface ConversationMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: Date
+  createdNodes?: GraphNode[]
+}
+
+// Thread metadata
+interface ThreadInfo {
+  threadId: string
+  lastMessage: string
+  turnCount: number
+  createdAt: string
+}
 
 export function CommandCenter({ onTasksCreated }: CommandCenterProps) {
   const { isAvailable } = useOllama()
 
   const [input, setInput] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
-  const [result, setResult] = useState<AgentResult | null>(null)
   const [ollamaAvailable, setOllamaAvailable] = useState<boolean | null>(null)
   const [showCreatedTasks, setShowCreatedTasks] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // New state for conversation management
+  const [threadId, setThreadId] = useState<string | null>(null)
+  const [clientState, setClientState] = useState<AgentContextState | undefined>(undefined)
+  const [conversation, setConversation] = useState<ConversationMessage[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [threads, setThreads] = useState<ThreadInfo[]>([])
+  const [isLoadingThreads, setIsLoadingThreads] = useState(false)
 
   // Check Ollama availability on mount
   useEffect(() => {
@@ -48,32 +70,151 @@ export function CommandCenter({ onTasksCreated }: CommandCenterProps) {
     setOllamaAvailable(available)
   }
 
+  // Load conversation threads
+  const loadThreads = useCallback(async () => {
+    setIsLoadingThreads(true)
+    try {
+      const response = await fetch('/api/agent/threads')
+      if (response.ok) {
+        const data = await response.json()
+        setThreads(data.threads || [])
+      }
+    } catch (error) {
+      console.error('Failed to load threads:', error)
+    } finally {
+      setIsLoadingThreads(false)
+    }
+  }, [])
+
+  // Load thread history when opening history panel
+  useEffect(() => {
+    if (showHistory) {
+      loadThreads()
+    }
+  }, [showHistory, loadThreads])
+
+  // Load conversation for a specific thread
+  const loadConversation = async (tid: string) => {
+    try {
+      const response = await fetch(`/api/agent/interact?threadId=${tid}`)
+      if (response.ok) {
+        const data = await response.json()
+        const messages: ConversationMessage[] = []
+        for (const log of data.logs || []) {
+          messages.push({
+            role: 'user',
+            content: log.user_input,
+            timestamp: new Date(log.created_at),
+          })
+          if (log.ai_response) {
+            messages.push({
+              role: 'assistant',
+              content: log.ai_response,
+              timestamp: new Date(log.created_at),
+            })
+          }
+        }
+        setConversation(messages)
+        setThreadId(tid)
+        // Get last context state if available
+        const lastLog = data.logs?.[data.logs.length - 1]
+        if (lastLog?.context_state) {
+          setClientState(lastLog.context_state)
+        }
+        setShowHistory(false)
+      }
+    } catch (error) {
+      console.error('Failed to load conversation:', error)
+    }
+  }
+
   const handleExecute = async () => {
     if (!input.trim()) return
 
+    const userMessage = input.trim()
     setIsProcessing(true)
-    setResult(null)
+
+    // Add user message to conversation immediately
+    setConversation(prev => [...prev, {
+      role: 'user',
+      content: userMessage,
+      timestamp: new Date(),
+    }])
+    setInput('')
 
     try {
-      const agentResult = await processNaturalLanguage(input, DEFAULT_USER_ID)
-      setResult(agentResult)
+      const response = await fetch('/api/agent/interact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          input: userMessage,
+          threadId: threadId || undefined,
+          clientState: clientState || undefined,
+        }),
+      })
 
-      if (agentResult.success && agentResult.createdTasks.length > 0) {
-        onTasksCreated?.(agentResult.createdTasks)
-        setInput('') // Clear input on success
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      const result: AgentInteractResponse = await response.json()
+
+      // Update thread ID for multi-turn conversations
+      setThreadId(result.threadId)
+
+      // Update client state for slot-filling
+      setClientState(result.serverState)
+
+      // Add assistant response to conversation
+      setConversation(prev => [...prev, {
+        role: 'assistant',
+        content: result.displayMessage,
+        timestamp: new Date(),
+        createdNodes: result.createdNodes,
+      }])
+
+      // Notify parent of created tasks
+      if (result.status === 'SUCCESS' && result.createdNodes && result.createdNodes.length > 0) {
+        // Convert GraphNode to Task format for compatibility
+        const validTaskTypes = ['course', 'project', 'club', 'todo'] as const
+        type ValidTaskType = typeof validTaskTypes[number]
+        const tasks: Task[] = result.createdNodes.map(node => {
+          const taskType: ValidTaskType = validTaskTypes.includes(node.task_type as ValidTaskType)
+            ? (node.task_type as ValidTaskType)
+            : 'todo'
+          return {
+            id: node.id,
+            user_id: node.user_id,
+            title: node.title,
+            content: node.content || '',
+            status: (node.status === 'blocked' || node.status === 'active' ? 'pending' : node.status) as 'pending' | 'in_progress' | 'completed' | 'archived',
+            priority: node.priority || 5,
+            due_date: node.due_date,
+            tags: node.tags || [],
+            parent_id: node.parent_id,
+            task_type: taskType,
+            created_at: node.created_at,
+            updated_at: node.updated_at,
+            type_metadata: node.type_metadata as Task['type_metadata'],
+            scheduled_for: node.scheduled_for,
+            completed_at: node.completed_at,
+            position: 0,
+            dependencies: [],
+            duration_minutes: node.duration_minutes,
+            version: node.version || 1,
+          }
+        })
+        onTasksCreated?.(tasks)
         setShowCreatedTasks(true)
       }
+
     } catch (error) {
       console.error('Command Center error:', error)
-      setResult({
-        success: false,
-        intent: 'UNKNOWN',
-        confidence: 0,
-        actions: [],
-        actionLog: ['Critical error occurred'],
-        createdTasks: [],
-        errors: [error instanceof Error ? error.message : 'Unknown error'],
-      })
+      setConversation(prev => [...prev, {
+        role: 'assistant',
+        content: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+      }])
     } finally {
       setIsProcessing(false)
     }
@@ -86,8 +227,10 @@ export function CommandCenter({ onTasksCreated }: CommandCenterProps) {
     }
   }
 
-  const resetState = () => {
-    setResult(null)
+  const startNewConversation = () => {
+    setThreadId(null)
+    setClientState(undefined)
+    setConversation([])
     setShowCreatedTasks(false)
     textareaRef.current?.focus()
   }
@@ -142,7 +285,7 @@ export function CommandCenter({ onTasksCreated }: CommandCenterProps) {
   }
 
   return (
-    <div className="max-w-3xl mx-auto w-full space-y-6 animate-in fade-in duration-500">
+    <div className="max-w-3xl mx-auto w-full space-y-6 animate-in fade-in duration-500 relative">
       {/* Header Section */}
       <div className="text-center space-y-2 mb-8">
         <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
@@ -153,6 +296,123 @@ export function CommandCenter({ onTasksCreated }: CommandCenterProps) {
         </p>
       </div>
 
+      {/* Conversation History Panel */}
+      {showHistory && (
+        <Card className="absolute right-0 top-0 w-80 z-50 shadow-xl animate-in slide-in-from-right">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold flex items-center gap-2">
+                <History className="h-4 w-4" />
+                Conversation History
+              </h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowHistory(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {isLoadingThreads ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : threads.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No conversation history yet.
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {threads.map((thread) => (
+                  <button
+                    key={thread.threadId}
+                    onClick={() => loadConversation(thread.threadId)}
+                    className={`w-full text-left p-3 rounded-lg border transition-colors ${
+                      threadId === thread.threadId
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20'
+                        : 'border-transparent hover:border-muted hover:bg-muted/50'
+                    }`}
+                  >
+                    <p className="text-sm font-medium line-clamp-1">{thread.lastMessage}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant="outline" className="text-xs">
+                        {thread.turnCount} turn{thread.turnCount !== 1 ? 's' : ''}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(thread.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Action Bar */}
+      <div className="flex items-center justify-end gap-2">
+        {threadId && (
+          <Button variant="outline" size="sm" onClick={startNewConversation}>
+            <MessageSquare className="h-4 w-4 mr-2" />
+            New Conversation
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowHistory(!showHistory)}
+        >
+          <History className="h-4 w-4 mr-2" />
+          History
+        </Button>
+      </div>
+
+      {/* Conversation Display */}
+      {conversation.length > 0 && (
+        <Card className="shadow-lg">
+          <CardContent className="p-4">
+            <div className="space-y-4 max-h-96 overflow-y-auto">
+              {conversation.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[80%] rounded-lg p-3 ${
+                      msg.role === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-muted'
+                    }`}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                    {msg.createdNodes && msg.createdNodes.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-white/20">
+                        <p className="text-xs opacity-80">
+                          Created {msg.createdNodes.length} task{msg.createdNodes.length !== 1 ? 's' : ''}:
+                        </p>
+                        <ul className="text-xs mt-1 space-y-1">
+                          {msg.createdNodes.map((node) => (
+                            <li key={node.id} className="flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              {node.title}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {isProcessing && (
+                <div className="flex justify-start">
+                  <div className="bg-muted rounded-lg p-3">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  </div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Input Card */}
       <Card className="relative shadow-xl border-2 border-muted/40 focus-within:border-blue-500/50 transition-all duration-300">
         <CardContent className="p-2">
@@ -161,8 +421,12 @@ export function CommandCenter({ onTasksCreated }: CommandCenterProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="e.g., 'Here is the syllabus for History 101...' or 'Plan a ski trip for next week...' or just 'Buy groceries tomorrow'"
-            className="min-h-[200px] resize-none border-none focus-visible:ring-0 text-base p-4 leading-relaxed"
+            placeholder={
+              clientState?.pendingIntent
+                ? "Continue your response..."
+                : "e.g., 'Here is the syllabus for History 101...' or 'Plan a ski trip for next week...' or just 'Buy groceries tomorrow'"
+            }
+            className="min-h-[120px] resize-none border-none focus-visible:ring-0 text-base p-4 leading-relaxed"
             disabled={isProcessing}
           />
 
@@ -172,8 +436,13 @@ export function CommandCenter({ onTasksCreated }: CommandCenterProps) {
                 <Bot className="h-3 w-3 mr-1" />
                 Ollama
               </Badge>
+              {threadId && (
+                <Badge variant="outline" className="text-xs">
+                  Thread active
+                </Badge>
+              )}
               <span className="text-xs text-muted-foreground hidden sm:inline-block">
-                {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'} + Enter to execute
+                {typeof navigator !== 'undefined' && navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'} + Enter to send
               </span>
             </div>
 
@@ -190,7 +459,7 @@ export function CommandCenter({ onTasksCreated }: CommandCenterProps) {
               ) : (
                 <>
                   <Sparkles className="h-4 w-4 mr-2" />
-                  Make it Happen
+                  {conversation.length > 0 ? 'Send' : 'Make it Happen'}
                 </>
               )}
             </Button>
@@ -198,122 +467,8 @@ export function CommandCenter({ onTasksCreated }: CommandCenterProps) {
         </CardContent>
       </Card>
 
-      {/* Result / Action Log */}
-      {result && (
-        <Card
-          className={`animate-in slide-in-from-bottom-4 ${
-            result.success
-              ? 'border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/20'
-              : 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20'
-          }`}
-        >
-          <CardContent className="p-4">
-            <div className="space-y-3">
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold flex items-center gap-2">
-                  {result.success ? (
-                    <>
-                      <CheckCircle2 className="h-4 w-4 text-green-600" />
-                      <span className="text-green-800 dark:text-green-200">
-                        Actions Completed
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle className="h-4 w-4 text-red-600" />
-                      <span className="text-red-800 dark:text-red-200">
-                        Processing Failed
-                      </span>
-                    </>
-                  )}
-                </h3>
-                <Badge variant="outline" className="text-xs">
-                  {result.intent}
-                </Badge>
-              </div>
-
-              {/* Action Log */}
-              <ul className="space-y-1">
-                {result.actionLog.map((log, i) => (
-                  <li
-                    key={i}
-                    className={`text-sm flex items-start gap-2 ${
-                      result.success
-                        ? 'text-green-700 dark:text-green-300'
-                        : 'text-red-700 dark:text-red-300'
-                    }`}
-                  >
-                    <ArrowRight className="h-4 w-4 mt-0.5 opacity-50 flex-shrink-0" />
-                    {log}
-                  </li>
-                ))}
-              </ul>
-
-              {/* Errors */}
-              {result.errors.length > 0 && (
-                <div className="text-sm text-red-700 dark:text-red-300">
-                  {result.errors.map((error, i) => (
-                    <p key={i}>{error}</p>
-                  ))}
-                </div>
-              )}
-
-              {/* Created Tasks Preview */}
-              {result.createdTasks.length > 0 && (
-                <div className="pt-2 border-t border-green-200 dark:border-green-800">
-                  <button
-                    onClick={() => setShowCreatedTasks(!showCreatedTasks)}
-                    className="w-full flex items-center justify-between text-sm text-green-700 dark:text-green-300 hover:text-green-800 dark:hover:text-green-200"
-                  >
-                    <span>
-                      {result.createdTasks.length} task{result.createdTasks.length !== 1 ? 's' : ''} created
-                    </span>
-                    {showCreatedTasks ? (
-                      <ChevronUp className="h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4" />
-                    )}
-                  </button>
-
-                  {showCreatedTasks && (
-                    <ul className="mt-2 space-y-1">
-                      {result.createdTasks.map((task) => (
-                        <li
-                          key={task.id}
-                          className="text-sm text-green-700 dark:text-green-300 pl-4 border-l-2 border-green-300 dark:border-green-700"
-                        >
-                          <span className="font-medium">{task.title}</span>
-                          {task.parent_id && (
-                            <span className="text-xs text-green-600 dark:text-green-400 ml-2">
-                              (child task)
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-
-              {/* Reset Button */}
-              {result.success && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={resetState}
-                  className="w-full mt-2"
-                >
-                  Create Another
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Examples Section */}
-      {!result && !isProcessing && (
+      {/* Examples Section - only show when no conversation */}
+      {conversation.length === 0 && !isProcessing && (
         <Card className="border-dashed">
           <CardContent className="p-4">
             <h3 className="text-sm font-medium text-muted-foreground mb-3">

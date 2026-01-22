@@ -9,8 +9,8 @@ export async function GET(request: NextRequest) {
     const supabase = createRouteHandlerSupabaseClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    // Allow local-user for single-user mode
-    const userId = user?.id || 'local-user'
+    // Allow local-user for single-user mode (use deterministic UUID)
+    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
@@ -93,8 +93,8 @@ export async function POST(request: NextRequest) {
     const supabase = createRouteHandlerSupabaseClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    // Allow local-user for single-user mode
-    const userId = user?.id || 'local-user'
+    // Allow local-user for single-user mode (use deterministic UUID)
+    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
 
     const body = await request.json()
     const {

@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const supabase = createRouteHandlerSupabaseClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    const userId = user?.id || 'local-user'
+    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
 
     const body = await request.json() as AgentInteractRequest
     const { input, threadId, clientState } = body
@@ -207,9 +207,13 @@ Respond ONLY with JSON:
     let entities: Record<string, string> = {}
 
     if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0])
-      intent = parsed.intent || 'QUICK_TODO'
-      entities = parsed.entities || {}
+      try {
+        const parsed = JSON.parse(jsonMatch[0])
+        intent = parsed.intent || 'QUICK_TODO'
+        entities = parsed.entities || {}
+      } catch (e) {
+        console.warn('Failed to parse intent JSON, using defaults')
+      }
     }
 
     // Extract structured data
@@ -251,7 +255,12 @@ Return ONLY JSON:
       const extractJsonMatch = extractContent.match(/\{[\s\S]*\}/)
 
       if (extractJsonMatch) {
-        extractedData = JSON.parse(extractJsonMatch[0])
+        try {
+          extractedData = JSON.parse(extractJsonMatch[0])
+        } catch (e) {
+          console.warn('Failed to parse extraction JSON, using input as title')
+          extractedData = { title: input.substring(0, 100), category: 'todo' }
+        }
       }
     }
 
@@ -290,21 +299,29 @@ Return ONLY JSON:
       if (match) parentId = match.id
     }
 
+    // Helper to sanitize LLM output - convert "null" strings to actual null
+    const sanitize = (val: any) => (val === 'null' || val === '' || val === undefined) ? null : val
+    const sanitizeNum = (val: any) => {
+      if (val === 'null' || val === '' || val === undefined || val === null) return null
+      const num = parseInt(val, 10)
+      return isNaN(num) ? null : num
+    }
+
     const taskData = {
       user_id: userId,
       title: extractedData.title,
-      content: extractedData.content || null,
+      content: sanitize(extractedData.content),
       status: 'pending',
       priority: 5,
-      manual_priority: extractedData.manual_priority || 0,
-      due_date: extractedData.due_date || null,
-      tags: extractedData.tags || [],
-      parent_id: parentId || null,
+      manual_priority: sanitizeNum(extractedData.manual_priority) || 0,
+      due_date: sanitize(extractedData.due_date),
+      tags: Array.isArray(extractedData.tags) ? extractedData.tags : [],
+      parent_id: sanitize(parentId),
       task_type: category === 'course' ? 'course' : category === 'project' ? 'project' : 'todo',
       type_metadata: {},
       node_type: nodeType,
       category: category,
-      duration_minutes: extractedData.duration_minutes || null,
+      duration_minutes: sanitizeNum(extractedData.duration_minutes),
     }
 
     const { data: task, error } = await supabase
@@ -432,7 +449,7 @@ export async function GET(request: NextRequest) {
     const supabase = createRouteHandlerSupabaseClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    const userId = user?.id || 'local-user'
+    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
 
     const { searchParams } = new URL(request.url)
     const threadId = searchParams.get('threadId')
