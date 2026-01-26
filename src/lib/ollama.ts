@@ -220,22 +220,30 @@ class OllamaClient {
       top_p?: number
       top_k?: number
       num_predict?: number
+      format?: 'json'  // Request JSON output format from Ollama
     } = {}
   ): Promise<OllamaResponse | ReadableStream<OllamaStreamResponse>> {
     try {
+      const requestBody: Record<string, unknown> = {
+        model,
+        messages,
+        stream: options.stream || false,
+        options: {
+          temperature: options.temperature || 0.7,
+          top_p: options.top_p || 0.9,
+          top_k: options.top_k || 40,
+          num_predict: options.num_predict || -1,
+        }
+      }
+
+      // Add format option for structured JSON output
+      if (options.format === 'json') {
+        requestBody.format = 'json'
+      }
+
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/chat`, {
         method: 'POST',
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: options.stream || false,
-          options: {
-            temperature: options.temperature || 0.7,
-            top_p: options.top_p || 0.9,
-            top_k: options.top_k || 40,
-            num_predict: options.num_predict || -1,
-          }
-        })
+        body: JSON.stringify(requestBody)
       })
 
       if (!response.ok) {

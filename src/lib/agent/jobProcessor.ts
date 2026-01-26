@@ -11,6 +11,7 @@ import { TaskWorker } from './workers/task'
 import { CalendarWorker } from './workers/calendar'
 import { ProjectWorker } from './workers/project'
 import { AgentJob, WorkerType, WorkerContext } from '@/types/agent'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 interface JobProcessorConfig {
   pollIntervalMs?: number
@@ -57,7 +58,7 @@ export class JobProcessor {
     this.workerId = config.workerId || `processor-${Date.now()}-${Math.random().toString(36).slice(2)}`
 
     // Initialize workers
-    this.workers = new Map([
+    this.workers = new Map<WorkerType, BaseWorker>([
       ['task', new TaskWorker(this.supabase, this.workerId)],
       ['calendar', new CalendarWorker(this.supabase, this.workerId)],
       ['project', new ProjectWorker(this.supabase, this.workerId)],
@@ -321,6 +322,93 @@ export class JobProcessor {
   }
 
   /**
+   * Janitor function: Resets jobs stuck in 'claimed'/'processing' for > 5 minutes.
+   * Implements retry logic: increment retry_count, fail permanently after 3 retries.
+   *
+   * This function should be called before processing new jobs to clean up stale state.
+   *
+   * @returns Number of jobs that were cleaned up
+   */
+  async cleanupStaleJobs(): Promise<number> {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    let cleanedCount = 0
+
+    try {
+      // 1. Permanently fail jobs that exceeded 3 retries
+      const { data: failedJobs, error: failError } = await this.supabase
+        .from('agent_jobs')
+        .update({
+          status: 'failed',
+          error_message: 'Job failed after 3 retries (timeout).',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .in('status', ['claimed', 'processing'])
+        .lt('updated_at', fiveMinutesAgo)
+        .gte('retry_count', 3)
+        .select('id')
+
+      if (failError) {
+        console.error('Error failing stale jobs:', failError)
+      } else {
+        cleanedCount += failedJobs?.length || 0
+        if (failedJobs?.length) {
+          console.log(`Janitor: Failed ${failedJobs.length} jobs that exceeded retry limit`)
+        }
+      }
+
+      // 2. Get jobs that need retry (have retries left)
+      const { data: jobsToRetry, error: fetchError } = await this.supabase
+        .from('agent_jobs')
+        .select('id, retry_count')
+        .in('status', ['claimed', 'processing'])
+        .lt('updated_at', fiveMinutesAgo)
+        .lt('retry_count', 3)
+
+      if (fetchError) {
+        console.error('Error fetching stale jobs for retry:', fetchError)
+        return cleanedCount
+      }
+
+      // 3. Reset each job for retry with exponential backoff
+      if (jobsToRetry?.length) {
+        for (const job of jobsToRetry) {
+          const newRetryCount = job.retry_count + 1
+          const backoffMs = Math.min(1000 * Math.pow(2, job.retry_count), 30000)
+          const nextRetryAt = new Date(Date.now() + backoffMs).toISOString()
+
+          const { error: updateError } = await this.supabase
+            .from('agent_jobs')
+            .update({
+              status: 'pending',
+              retry_count: newRetryCount,
+              next_retry_at: nextRetryAt,
+              error_message: `Timeout. Retry attempt ${newRetryCount}/3`,
+              claimed_by: null,
+              claimed_at: null,
+              started_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.id)
+
+          if (updateError) {
+            console.error(`Error resetting job ${job.id} for retry:`, updateError)
+          } else {
+            cleanedCount++
+          }
+        }
+
+        console.log(`Janitor: Reset ${jobsToRetry.length} stale jobs for retry`)
+      }
+
+    } catch (error) {
+      console.error('Error in cleanupStaleJobs:', error)
+    }
+
+    return cleanedCount
+  }
+
+  /**
    * Get processor status
    */
   getStatus(): {
@@ -380,22 +468,27 @@ export function getJobProcessor(config?: JobProcessorConfig): JobProcessor {
 
 /**
  * Process pending jobs (for serverless/edge function invocation)
+ *
+ * This function runs the janitor cleanup first to handle stale jobs,
+ * then processes pending jobs up to the specified limit.
  */
 export async function processPendingJobs(maxJobs: number = 10): Promise<number> {
-  const processor = getJobProcessor()
   let processed = 0
 
-  // Create a temporary processor for one-shot processing
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  // Use admin client for privileged access (bypasses RLS)
+  const supabase = createAdminClient()
 
-  if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Missing Supabase configuration')
+  // Run Janitor cleanup FIRST - clean up stale jobs before processing new ones
+  try {
+    const processor = getJobProcessor()
+    const cleaned = await processor.cleanupStaleJobs()
+    if (cleaned > 0) {
+      console.log(`Janitor cleaned ${cleaned} stale jobs`)
+    }
+  } catch (cleanupError) {
+    console.error('Janitor cleanup error (non-fatal):', cleanupError)
+    // Continue processing even if cleanup fails
   }
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-    auth: { persistSession: false },
-  })
 
   const workers = new Map<WorkerType, BaseWorker>([
     ['task', new TaskWorker(supabase)],

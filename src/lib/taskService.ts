@@ -222,6 +222,133 @@ export class TaskService {
   }
 
   /**
+   * Create multiple tasks in a single batch operation
+   * More efficient than creating tasks one by one for bulk imports
+   *
+   * @param tasks Array of partial task data to create
+   * @returns Array of created tasks
+   * @throws {ValidationError} When any task data is invalid
+   * @throws {SyncError} When batch creation fails
+   */
+  async createTasksBatch(tasks: Array<CreateTaskDTO & { id?: string; user_id?: string; status?: string }>): Promise<Task[]> {
+    if (!tasks || tasks.length === 0) {
+      return []
+    }
+
+    // Validate all tasks first
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i]
+      if (!task.title || task.title.trim().length === 0) {
+        throw new ValidationError(`Task at index ${i} is missing a title`, 'title')
+      }
+      if (task.title.length > 500) {
+        throw new ValidationError(`Task at index ${i} title must be 500 characters or less`, 'title')
+      }
+    }
+
+    const userId = await this.getCurrentUserId()
+    const now = new Date().toISOString()
+
+    // Prepare clean task data for batch insert
+    const cleanTasks = tasks.map(t => {
+      const category = normalizeCategory(t as CreateTaskDTO)
+      const taskType = t.task_type || categoryToTaskType(category)
+      const nodeType = t.node_type ||
+        (t.parent_id ? 'item' :
+          (['course', 'project', 'club'].includes(category) ? 'container' : 'item'))
+
+      return {
+        id: t.id || crypto.randomUUID(),
+        user_id: t.user_id || userId,
+        title: t.title!.trim(),
+        content: t.content || '',
+        rich_content: t.rich_content,
+        status: t.status || 'pending',
+        priority: t.priority || 5,
+        manual_priority: t.manual_priority || 0,
+        due_date: t.due_date || null,
+        start_date: t.start_date || null,
+        tags: t.tags || [],
+        dependencies: [],
+        position: 0,
+        version: 1,
+        parent_id: t.parent_id || null,
+        task_type: taskType,
+        type_metadata: t.type_metadata || { category: 'general' },
+        node_type: nodeType as 'container' | 'item',
+        category: category,
+        created_at: now,
+        updated_at: now,
+      }
+    })
+
+    try {
+      if (navigator.onLine) {
+        // Use API for batch creation when online
+        const response = await fetch('/api/tasks/batch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ tasks: cleanTasks }),
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          const createdTasks = data.tasks || []
+
+          // Store in local storage as well
+          try {
+            for (const task of createdTasks) {
+              await indexedDBService.storeTask(task)
+            }
+          } catch (localError) {
+            console.warn('Failed to store batch tasks locally:', localError)
+          }
+
+          return createdTasks
+        } else if (response.status === 400) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new ValidationError(
+            errorData.error || 'Invalid batch task data',
+            errorData.field,
+            errorData.details
+          )
+        } else {
+          // Fall through to direct Supabase insert
+          throw new NetworkError(
+            `Batch API not available: ${response.status}`,
+            '/api/tasks/batch',
+            'POST'
+          )
+        }
+      } else {
+        throw new OfflineError('Creating batch tasks offline')
+      }
+    } catch (error) {
+      // If it's already our error type (except Network/Offline), rethrow
+      if (isAppError(error) && !(error instanceof NetworkError) && !(error instanceof OfflineError)) {
+        throw error
+      }
+
+      // Fall back to creating tasks through sync service one by one
+      // This is less efficient but works offline
+      console.warn('Batch API unavailable, falling back to individual creates')
+      const createdTasks: Task[] = []
+      for (const task of cleanTasks) {
+        try {
+          const created = await syncService.createTask(task as Omit<Task, 'id' | 'created_at' | 'updated_at'>)
+          createdTasks.push(created)
+        } catch (createError) {
+          console.error(`Failed to create task "${task.title}":`, createError)
+          // Continue with remaining tasks
+        }
+      }
+      return createdTasks
+    }
+  }
+
+  /**
    * Update a task
    * @throws {TaskNotFoundError} When task is not found
    * @throws {ValidationError} When update data is invalid

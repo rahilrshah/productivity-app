@@ -16,6 +16,11 @@ import {
 } from '@/types/agent'
 import { GraphNode } from '@/types/graph'
 import { GraphIntent } from '../intentClassifier'
+import { getOllamaClient } from '@/lib/ollama'
+import { taskService } from '@/lib/taskService'
+
+// Maximum characters for AI input to prevent token overflow (~5k tokens)
+const MAX_CHARS = 20000
 
 export class CalendarWorker extends BaseWorker {
   readonly workerType: WorkerType = 'calendar'
@@ -36,6 +41,13 @@ export class CalendarWorker extends BaseWorker {
     const intent = job.intent as GraphIntent
 
     try {
+      // Apply MAX_CHARS safeguard to prevent token overflow
+      if (inputData.user_input && inputData.user_input.length > MAX_CHARS) {
+        console.log(`CalendarWorker: Truncating input from ${inputData.user_input.length} to ${MAX_CHARS} chars`)
+        inputData.user_input = inputData.user_input.substring(0, MAX_CHARS)
+        await this.updateProgress(job.id, 5, 'Input truncated for processing...')
+      }
+
       await this.updateProgress(job.id, 10, 'Analyzing scheduling request...')
 
       switch (intent) {
@@ -460,4 +472,159 @@ interface ScheduleAction {
   date?: string
   time?: string
   duration?: number
+}
+
+interface BatchEvent {
+  title: string
+  date?: string
+  time?: string
+  type?: string
+  duration_minutes?: number
+}
+
+/**
+ * Batch import handler for importing multiple events from calendar data
+ * Includes context truncation safeguard and batch processing
+ */
+export async function handleBatchImport(
+  job: AgentJob,
+  context: WorkerContext,
+  supabase: SupabaseClient,
+  updateProgress: (jobId: string, progress: number, message?: string) => Promise<void>,
+  completeJob: (jobId: string, output: { message: string; created_nodes?: GraphNode[] }) => Promise<void>
+): Promise<WorkerResult> {
+  let safeInput = job.input_data.user_input
+
+  // Context Safeguard: Truncate long inputs to prevent token overflow
+  if (safeInput.length > MAX_CHARS) {
+    await updateProgress(job.id, 10, 'Input too long, truncating...')
+    safeInput = safeInput.substring(0, MAX_CHARS)
+    console.log(`CalendarWorker: Truncated input from ${job.input_data.user_input.length} to ${MAX_CHARS} chars`)
+  }
+
+  await updateProgress(job.id, 20, 'AI extracting events...')
+
+  try {
+    // Use JSON format for reliable extraction
+    const ollamaClient = getOllamaClient()
+    const systemPrompt = `You are an expert at extracting calendar events from text.
+Extract all events/tasks with dates from the provided text.
+Return a JSON object with an "events" array containing objects with:
+- title: Event/task name
+- date: ISO date string (YYYY-MM-DD) if mentioned
+- time: Time in HH:MM format if mentioned
+- type: One of "exam", "assignment", "meeting", "task", "event"
+- duration_minutes: Duration in minutes if mentioned
+
+Example response:
+{"events": [{"title": "CS101 Midterm", "date": "2025-03-15", "type": "exam"}]}
+
+If no events are found, return {"events": []}`
+
+    const response = await ollamaClient.chat('llama3.1:8b', [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `Extract events from this text:\n\n${safeInput}` }
+    ], { format: 'json', temperature: 0.2 })
+
+    if ('message' in response && response.message?.content) {
+      let events: BatchEvent[] = []
+
+      try {
+        const parsed = JSON.parse(response.message.content)
+        events = parsed.events || []
+      } catch (parseError) {
+        console.error('Failed to parse AI response:', parseError)
+        return {
+          success: false,
+          message: 'Failed to parse events from input',
+          error: 'JSON parse error',
+        }
+      }
+
+      if (events.length === 0) {
+        await completeJob(job.id, {
+          message: 'No events found in the input',
+        })
+        return {
+          success: true,
+          message: 'No events found in the input',
+        }
+      }
+
+      await updateProgress(job.id, 50, `Creating ${events.length} tasks...`)
+
+      // Prepare batch tasks
+      const tasks = events.map((evt: BatchEvent) => ({
+        user_id: context.userId,
+        title: evt.title,
+        due_date: evt.date,
+        category: evt.type === 'exam' ? 'course' as const : 'todo' as const,
+        node_type: 'item' as const,
+        status: 'pending',
+        type_metadata: {
+          source: 'batch_import',
+          original_type: evt.type,
+          scheduled_time: evt.time,
+        },
+        duration_minutes: evt.duration_minutes,
+      }))
+
+      // Batch insert using TaskService
+      let created: GraphNode[] = []
+      try {
+        created = await taskService.createTasksBatch(tasks) as GraphNode[]
+      } catch (batchError) {
+        console.error('Batch creation failed, falling back to individual inserts:', batchError)
+
+        // Fallback to individual inserts
+        for (const task of tasks) {
+          try {
+            const { data, error } = await supabase
+              .from('tasks')
+              .insert({
+                ...task,
+                priority: 5,
+                tags: [],
+              })
+              .select()
+              .single()
+
+            if (!error && data) {
+              created.push(data as GraphNode)
+            }
+          } catch (insertError) {
+            console.error(`Failed to create task "${task.title}":`, insertError)
+          }
+        }
+      }
+
+      await updateProgress(job.id, 90, 'Finalizing import...')
+
+      const message = `Imported ${created.length} events`
+      await completeJob(job.id, {
+        message,
+        created_nodes: created,
+      })
+
+      return {
+        success: true,
+        message,
+        created_nodes: created,
+      }
+    }
+
+    return {
+      success: false,
+      message: 'Invalid AI response format',
+      error: 'No message content in response',
+    }
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    return {
+      success: false,
+      message: `Failed to process batch import: ${errorMessage}`,
+      error: errorMessage,
+    }
+  }
 }
