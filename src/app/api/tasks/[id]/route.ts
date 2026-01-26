@@ -10,16 +10,18 @@ export async function GET(
 ) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    // Allow local-user for single-user mode (use deterministic UUID)
-    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
+    // Require authentication - no fallback to shared UUID
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const { data: task, error } = await supabase
       .from('tasks')
       .select('*')
       .eq('id', params.id)
-      .eq('user_id', userId)
+      .eq('user_id', user.id)
       .single()
 
     if (error) {
@@ -43,10 +45,12 @@ export async function PUT(
 ) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    // Allow local-user for single-user mode (use deterministic UUID)
-    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
+    // Require authentication - no fallback to shared UUID
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json()
     const updates: TaskUpdate = {}
@@ -75,7 +79,7 @@ export async function PUT(
       .from('tasks')
       .update(updates)
       .eq('id', params.id)
-      .eq('user_id', userId)
+      .eq('user_id', user.id)
       .select()
       .single()
 
@@ -100,10 +104,12 @@ export async function DELETE(
 ) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    // Allow local-user for single-user mode (use deterministic UUID)
-    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
+    // Require authentication - no fallback to shared UUID
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     // Soft delete by setting deleted_at timestamp
     const { error } = await supabase
@@ -113,7 +119,7 @@ export async function DELETE(
         updated_at: new Date().toISOString()
       })
       .eq('id', params.id)
-      .eq('user_id', userId)
+      .eq('user_id', user.id)
       .select()
       .single()
 

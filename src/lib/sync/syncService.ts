@@ -2,11 +2,24 @@ import { Task } from '@/types'
 import { indexedDBService } from '@/lib/storage/indexedDB'
 import { keyManager } from '@/lib/encryption/keyManager'
 
+/**
+ * Error thrown when encryption is required but not available
+ */
+export class EncryptionRequiredError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'EncryptionRequiredError'
+  }
+}
+
 export class SyncService {
   private static instance: SyncService
   private syncInProgress = false
   private deviceId: string
   private userId: string | null = null
+  private retryCount = 0
+  private maxRetries = 5
+  private requireEncryption = false // Can be enabled for production
 
   private constructor() {
     // Initialize deviceId as empty, will be set during initialize()
@@ -22,13 +35,19 @@ export class SyncService {
 
   /**
    * Initialize sync service
+   * @param userId - The user's ID
+   * @param options - Configuration options
    */
-  async initialize(userId: string): Promise<void> {
+  async initialize(
+    userId: string,
+    options: { requireEncryption?: boolean } = {}
+  ): Promise<void> {
     this.userId = userId
-    
+    this.requireEncryption = options.requireEncryption ?? false
+
     // Set device ID now that we're in client context
     this.deviceId = this.getOrCreateDeviceId()
-    
+
     // Initialize IndexedDB
     await indexedDBService.initialize()
 
@@ -76,10 +95,34 @@ export class SyncService {
 
     } catch (error) {
       console.error('Sync from server failed:', error)
+      // Implement exponential backoff for retries
+      this.scheduleRetry()
       throw error
     } finally {
       this.syncInProgress = false
     }
+  }
+
+  /**
+   * Schedule a retry with exponential backoff
+   */
+  private scheduleRetry(): void {
+    if (this.retryCount >= this.maxRetries) {
+      console.warn('Max retries reached, will try again on next scheduled sync')
+      this.retryCount = 0
+      return
+    }
+
+    const delay = Math.min(1000 * Math.pow(2, this.retryCount), 30000) // Max 30s
+    this.retryCount++
+
+    console.log(`Scheduling retry in ${delay}ms (attempt ${this.retryCount}/${this.maxRetries})`)
+
+    setTimeout(() => {
+      if (navigator.onLine && !this.syncInProgress) {
+        this.fullSync().catch(console.error)
+      }
+    }, delay)
   }
 
   /**
@@ -121,12 +164,14 @@ export class SyncService {
         throw new Error('Failed to push sync data')
       }
 
-      const { results } = await response.json()
+      const { results } = await response.json() as {
+        results: Array<{ entity_id: string; status: 'success' | 'error'; error?: string }>
+      }
 
       // Mark successful changes as synced
       const successfulChangeIds = results
-        .filter((result: any) => result.status === 'success')
-        .map((result: any) => result.entity_id)
+        .filter((result) => result.status === 'success')
+        .map((result) => result.entity_id)
 
       if (successfulChangeIds.length > 0) {
         await indexedDBService.markChangesSynced(successfulChangeIds)
@@ -159,8 +204,12 @@ export class SyncService {
       // Clean up old synced changes
       await indexedDBService.clearOldSyncedChanges(7)
 
+      // Reset retry count on successful sync
+      this.retryCount = 0
+
     } catch (error) {
       console.error('Full sync failed:', error)
+      // Don't schedule retry here as individual methods handle it
     }
   }
 
@@ -273,36 +322,43 @@ export class SyncService {
     const userId = this.userId || 'local-user'
 
     const tasks = await indexedDBService.getTasks(userId)
-    
+
     // Decrypt tasks
-    const decryptedTasks = []
+    const decryptedTasks: Task[] = []
     for (const task of tasks) {
       try {
         const decryptedTask = await this.decryptTask(task)
-        decryptedTasks.push(decryptedTask)
+        // Merge decrypted fields back into the full task
+        decryptedTasks.push({ ...task, ...decryptedTask } as Task)
       } catch (error) {
         console.error('Failed to decrypt task:', error)
         // Include task with original data if decryption fails
         decryptedTasks.push(task)
       }
     }
-    
+
     return decryptedTasks
   }
 
   /**
    * Private helper methods
    */
-  private async applyChange(change: any): Promise<void> {
+  private async applyChange(change: {
+    operation: string
+    entity_type: string
+    entity_id: string
+    data: Partial<Task>
+  }): Promise<void> {
     const { operation, entity_type, entity_id, data } = change
 
     if (entity_type === 'task') {
       switch (operation) {
         case 'create':
-        case 'update':
+        case 'update': {
           const decryptedData = await this.decryptTask(data)
-          await indexedDBService.storeTask({ id: entity_id, ...decryptedData })
+          await indexedDBService.storeTask({ id: entity_id, ...decryptedData } as Task)
           break
+        }
         case 'delete':
           await indexedDBService.deleteTask(entity_id)
           break
@@ -310,11 +366,25 @@ export class SyncService {
     }
   }
 
-  private async encryptTask(task: any): Promise<any> {
-    if (!keyManager.isInitialized()) return task
+  /**
+   * Encrypt task data before syncing
+   * @throws EncryptionRequiredError if encryption is required but not available
+   */
+  private async encryptTask(task: Partial<Task>): Promise<Partial<Task>> {
+    if (!keyManager.isInitialized()) {
+      if (this.requireEncryption) {
+        throw new EncryptionRequiredError(
+          'Encryption is required but keyManager is not initialized. ' +
+          'Please ensure encryption keys are set up before syncing sensitive data.'
+        )
+      }
+      // In non-strict mode, warn but continue
+      console.warn('Warning: Syncing data without encryption. Set requireEncryption=true in production.')
+      return task
+    }
 
     const encrypted = { ...task }
-    
+
     // Encrypt sensitive fields
     if (task.title) {
       encrypted.title = await keyManager.encryptForPurpose(task.title, 'tasks')
@@ -322,15 +392,27 @@ export class SyncService {
     if (task.content) {
       encrypted.content = await keyManager.encryptForPurpose(JSON.stringify(task.content), 'tasks')
     }
-    
+
     return encrypted
   }
 
-  private async decryptTask(task: any): Promise<any> {
-    if (!keyManager.isInitialized()) return task
+  /**
+   * Decrypt task data after fetching from server
+   * @throws EncryptionRequiredError if decryption fails and encryption is required
+   */
+  private async decryptTask(task: Partial<Task>): Promise<Partial<Task>> {
+    if (!keyManager.isInitialized()) {
+      if (this.requireEncryption) {
+        throw new EncryptionRequiredError(
+          'Decryption required but keyManager is not initialized. ' +
+          'Please ensure encryption keys are available before accessing encrypted data.'
+        )
+      }
+      return task
+    }
 
     const decrypted = { ...task }
-    
+
     // Decrypt sensitive fields
     try {
       if (task.title && typeof task.title === 'string' && task.title.startsWith('{')) {
@@ -341,10 +423,15 @@ export class SyncService {
         decrypted.content = JSON.parse(decryptedContent)
       }
     } catch (error) {
-      // If decryption fails, return original data
+      if (this.requireEncryption) {
+        throw new EncryptionRequiredError(
+          `Failed to decrypt task ${task.id}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        )
+      }
+      // In non-strict mode, warn and return original
       console.warn('Decryption failed for task:', task.id, error)
     }
-    
+
     return decrypted
   }
 

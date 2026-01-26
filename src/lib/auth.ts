@@ -37,37 +37,24 @@ class AuthService {
     this.setState({ loading: true })
 
     try {
-      console.log('Auth service initializing...')
-      console.log('Supabase client config:', {
-        url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-        hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      })
-      
       // Check current session
       const { data: { session }, error } = await this.supabase.auth.getSession()
-      
-      console.log('Session check detailed result:', { 
-        hasSession: !!session,
-        hasUser: !!session?.user,
-        userId: session?.user?.id,
-        userEmail: session?.user?.email,
-        sessionError: error,
-        accessToken: session?.access_token ? 'present' : 'missing'
-      })
-      
+
+      if (error) {
+        console.error('Session check failed')
+      }
+
       if (session?.user) {
-        console.log('User found, setting authenticated state')
-        this.setState({ 
-          user: session.user, 
-          loading: false, 
-          initialized: true 
+        this.setState({
+          user: session.user,
+          loading: false,
+          initialized: true
         })
       } else {
-        console.log('No user found, setting unauthenticated state')
-        this.setState({ 
-          user: null, 
-          loading: false, 
-          initialized: true 
+        this.setState({
+          user: null,
+          loading: false,
+          initialized: true
         })
       }
 
@@ -99,35 +86,22 @@ class AuthService {
     this.setState({ loading: true })
 
     try {
-      console.log('Starting sign in for email:', email)
-      
-      // First authenticate with Supabase
+      // Authenticate with Supabase
       const { data, error } = await this.supabase.auth.signInWithPassword({
         email,
         password,
       })
 
-      console.log('Sign in response:', {
-        hasUser: !!data.user,
-        hasSession: !!data.session,
-        userId: data.user?.id,
-        error: error?.message,
-        errorCode: error?.name
-      })
-
       if (error) {
-        console.error('Sign in error:', error)
         this.setState({ loading: false })
         return { success: false, error: error.message }
       }
 
       if (!data.user) {
-        console.error('No user returned from sign in')
         this.setState({ loading: false })
         return { success: false, error: 'No user returned from authentication' }
       }
 
-      console.log('Sign in successful, updating state')
       this.setState({
         user: data.user,
         loading: false,
@@ -136,9 +110,9 @@ class AuthService {
       return { success: true }
     } catch (error) {
       this.setState({ loading: false })
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Sign in failed' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Sign in failed'
       }
     }
   }
@@ -150,46 +124,31 @@ class AuthService {
     this.setState({ loading: true })
 
     try {
-      console.log('Starting sign up for email:', email)
-      
-      // First create account with Supabase
+      // Create account with Supabase
       const { data, error } = await this.supabase.auth.signUp({
         email,
         password,
       })
 
-      console.log('Sign up response:', {
-        hasUser: !!data.user,
-        hasSession: !!data.session,
-        userId: data.user?.id,
-        userConfirmedAt: data.user?.confirmed_at,
-        error: error?.message,
-        errorCode: error?.name
-      })
-
       if (error) {
-        console.error('Sign up error:', error)
         this.setState({ loading: false })
         return { success: false, error: error.message }
       }
 
       // Check if email confirmation is required
       if (!data.user && !data.session) {
-        console.log('Email confirmation required')
         this.setState({ loading: false })
-        return { 
-          success: true, 
-          error: 'Please check your email and click the confirmation link to complete registration.' 
+        return {
+          success: true,
+          error: 'Please check your email and click the confirmation link to complete registration.'
         }
       }
 
       if (!data.user) {
-        console.error('No user returned from sign up')
         this.setState({ loading: false })
         return { success: false, error: 'No user returned from registration' }
       }
 
-      console.log('Sign up successful, updating state')
       this.setState({
         user: data.user,
         loading: false,
@@ -198,9 +157,9 @@ class AuthService {
       return { success: true }
     } catch (error) {
       this.setState({ loading: false })
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Sign up failed' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Sign up failed'
       }
     }
   }

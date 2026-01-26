@@ -1,8 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerSupabaseClient } from '@/lib/supabase/server'
 import { Database } from '@/lib/supabase/types'
+import { timingSafeEqual } from 'crypto'
 
 type TaskInsert = Database['public']['Tables']['tasks']['Insert']
+
+/**
+ * Constant-time string comparison to prevent timing attacks
+ */
+function secureCompare(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false
+  }
+
+  // Ensure both strings are the same length for comparison
+  const aBuffer = Buffer.from(a)
+  const bBuffer = Buffer.from(b)
+
+  if (aBuffer.length !== bBuffer.length) {
+    // Still do a comparison to maintain constant time
+    const dummy = Buffer.alloc(aBuffer.length)
+    timingSafeEqual(aBuffer, dummy)
+    return false
+  }
+
+  return timingSafeEqual(aBuffer, bBuffer)
+}
 
 interface ParsedTask {
   title: string
@@ -95,27 +118,47 @@ function parseNaturalLanguage(input: string): ParsedTask {
 
 export async function POST(request: NextRequest) {
   try {
-    // Check authentication
+    // Check authentication using constant-time comparison
     const authHeader = request.headers.get('authorization')
     const expectedSecret = process.env.CLAUDE_WEBHOOK_SECRET
 
     if (!expectedSecret) {
-      return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 })
+      // Log server-side but don't expose details to client
+      console.error('CLAUDE_WEBHOOK_SECRET not configured')
+      return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
     }
 
-    if (!authHeader || authHeader !== `Bearer ${expectedSecret}`) {
+    // Validate auth header format and compare securely
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const providedToken = authHeader.slice(7) // Remove 'Bearer ' prefix
+    if (!secureCompare(providedToken, expectedSecret)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     const body = await request.json()
     const { text, user_id } = body
 
-    if (!text) {
+    // Validate text
+    if (!text || typeof text !== 'string') {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 })
     }
 
-    if (!user_id) {
+    // Limit text length to prevent abuse
+    if (text.length > 5000) {
+      return NextResponse.json({ error: 'Text too long' }, { status: 400 })
+    }
+
+    // Validate user_id format (UUID)
+    if (!user_id || typeof user_id !== 'string') {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 })
+    }
+
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(user_id)) {
+      return NextResponse.json({ error: 'Invalid user ID format' }, { status: 400 })
     }
 
     // Parse the natural language input
@@ -169,9 +212,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({ 
-    message: 'Claude Webhook Endpoint',
-    usage: 'POST with { "text": "your natural language task", "user_id": "your-user-id" }',
-    auth: 'Bearer token required'
+  // Don't expose any details about the webhook configuration
+  return NextResponse.json({
+    message: 'Webhook endpoint',
+    status: 'active'
   })
 }

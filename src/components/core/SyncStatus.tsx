@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getCRDTEngine } from '@/lib/crdt'
-import { 
-  Wifi, 
-  WifiOff, 
-  RotateCw as Sync, 
+import {
+  Wifi,
+  WifiOff,
+  RotateCw as Sync,
   AlertTriangle,
   CheckCircle,
   Clock
@@ -19,61 +19,106 @@ export function SyncStatus() {
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null)
   const [pendingOperations, setPendingOperations] = useState(0)
 
+  // Use refs to track current values for interval callback
+  const isOnlineRef = useRef(isOnline)
+  const pendingOperationsRef = useRef(pendingOperations)
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const isMountedRef = useRef(true)
+
+  // Keep refs in sync with state
   useEffect(() => {
-    const crdt = getCRDTEngine()
-    
-    // Monitor online/offline status
-    const handleOnline = () => setIsOnline(true)
-    const handleOffline = () => setIsOnline(false)
-    
+    isOnlineRef.current = isOnline
+  }, [isOnline])
+
+  useEffect(() => {
+    pendingOperationsRef.current = pendingOperations
+  }, [pendingOperations])
+
+  // Setup event listeners - only run once
+  useEffect(() => {
+    isMountedRef.current = true
+
+    const handleOnline = () => {
+      if (isMountedRef.current) setIsOnline(true)
+    }
+    const handleOffline = () => {
+      if (isMountedRef.current) setIsOnline(false)
+    }
+
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
-    
+
     setIsOnline(navigator.onLine)
 
-    // Subscribe to CRDT changes
+    return () => {
+      isMountedRef.current = false
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  // Setup CRDT subscription - only run once
+  useEffect(() => {
+    const crdt = getCRDTEngine()
+
     const unsubscribe = crdt.subscribe((state) => {
-      setPendingOperations(state.operations.length)
+      if (isMountedRef.current) {
+        setPendingOperations(state.operations.length)
+      }
     })
 
-    // Simulate sync operations
-    const syncInterval = setInterval(() => {
-      if (isOnline && pendingOperations > 0) {
+    return () => {
+      unsubscribe()
+    }
+  }, [])
+
+  // Memoized sync function
+  const simulateSync = useCallback(async () => {
+    if (!isMountedRef.current) return
+
+    setSyncStatus('syncing')
+
+    // Simulate sync delay
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    if (!isMountedRef.current) return
+
+    const success = Math.random() > 0.1 // 90% success rate
+
+    if (success) {
+      setSyncStatus('success')
+      setLastSyncTime(new Date())
+      setTimeout(() => {
+        if (isMountedRef.current) setSyncStatus('idle')
+      }, 2000)
+    } else {
+      setSyncStatus('error')
+      setTimeout(() => {
+        if (isMountedRef.current) setSyncStatus('idle')
+      }, 3000)
+    }
+  }, [])
+
+  // Setup sync interval - only run once
+  useEffect(() => {
+    syncIntervalRef.current = setInterval(() => {
+      if (isOnlineRef.current && pendingOperationsRef.current > 0) {
         simulateSync()
       }
     }, 5000)
 
     return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-      unsubscribe()
-      clearInterval(syncInterval)
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current)
+      }
     }
-  }, [isOnline, pendingOperations])
+  }, [simulateSync])
 
-  const simulateSync = async () => {
-    setSyncStatus('syncing')
-    
-    // Simulate sync delay
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    const success = Math.random() > 0.1 // 90% success rate
-    
-    if (success) {
-      setSyncStatus('success')
-      setLastSyncTime(new Date())
-      setTimeout(() => setSyncStatus('idle'), 2000)
-    } else {
-      setSyncStatus('error')
-      setTimeout(() => setSyncStatus('idle'), 3000)
-    }
-  }
-
-  const handleManualSync = () => {
+  const handleManualSync = useCallback(() => {
     if (isOnline) {
       simulateSync()
     }
-  }
+  }, [isOnline, simulateSync])
 
   const formatTime = (date: Date): string => {
     const now = new Date()

@@ -45,11 +45,26 @@ export interface OllamaStreamResponse {
 class OllamaClient {
   private baseUrl: string
   private timeout: number
+  private connectionVerified = false
 
   constructor(baseUrl?: string) {
-    this.baseUrl = baseUrl || process.env.NEXT_PUBLIC_OLLAMA_BASE_URL || 'http://localhost:11434'
-    console.log('OllamaClient initialized with baseUrl:', this.baseUrl)
+    // Use provided URL, then env var, then localhost fallback
+    const envUrl = process.env.NEXT_PUBLIC_OLLAMA_BASE_URL
+    this.baseUrl = baseUrl || envUrl || 'http://localhost:11434'
+
+    // Only log in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('OllamaClient initialized with baseUrl:', this.baseUrl)
+    }
+
     this.timeout = 60000 // 60 seconds - longer timeout for complex requests
+  }
+
+  /**
+   * Get the current base URL
+   */
+  getBaseUrl(): string {
+    return this.baseUrl
   }
 
   private async fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
@@ -86,15 +101,47 @@ class OllamaClient {
     }
   }
 
+  /**
+   * Check if Ollama is available and responding
+   * Caches the result to avoid repeated checks
+   */
   async isAvailable(): Promise<boolean> {
     try {
       const response = await this.fetchWithTimeout(`${this.baseUrl}/api/tags`, {
         method: 'GET'
       })
+      this.connectionVerified = response.ok
       return response.ok
     } catch (error) {
-      console.warn('Ollama not available:', error)
+      this.connectionVerified = false
+      // Only warn in development
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Ollama not available:', error instanceof Error ? error.message : 'Unknown error')
+      }
       return false
+    }
+  }
+
+  /**
+   * Get Ollama connection status with details
+   */
+  async getStatus(): Promise<{
+    available: boolean
+    baseUrl: string
+    error?: string
+  }> {
+    try {
+      const available = await this.isAvailable()
+      return {
+        available,
+        baseUrl: this.baseUrl
+      }
+    } catch (error) {
+      return {
+        available: false,
+        baseUrl: this.baseUrl,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
     }
   }
 

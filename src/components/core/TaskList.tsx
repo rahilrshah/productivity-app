@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Task, TaskType, TaskStatus } from '@/types'
 import { TaskCard } from './TaskCard'
 import { TypeAwareCreateForm } from './TypeAwareCreateForm'
@@ -189,103 +189,119 @@ export function TaskList({}: TaskListProps = {}) {
     }
   }
 
-  // Filter and sort tasks
-  const filteredAndSortedTasks = tasks
-    .filter(task => {
-      // Search filter
-      if (searchQuery && !task.title.toLowerCase().includes(searchQuery.toLowerCase()) && 
-          !task.content?.toLowerCase().includes(searchQuery.toLowerCase()) &&
-          !task.tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))) {
-        return false
-      }
-      
-      // Type filter
-      if (filterType !== 'all' && task.task_type !== filterType) {
-        return false
-      }
-      
-      // Status filter
-      if (filterStatus !== 'all' && task.status !== filterStatus) {
-        return false
-      }
-      
-      // Priority filter
-      if (filterPriority !== 'all') {
-        const priorityLevel = task.priority <= 3 ? 'low' : task.priority <= 7 ? 'medium' : 'high'
-        if (priorityLevel !== filterPriority) {
+  // Memoized filter and sort tasks - prevents recalculation on every render
+  const filteredAndSortedTasks = useMemo(() => {
+    const searchLower = searchQuery.toLowerCase()
+
+    return tasks
+      .filter(task => {
+        // Search filter
+        if (searchQuery) {
+          const matchesTitle = task.title.toLowerCase().includes(searchLower)
+          const matchesContent = task.content?.toLowerCase().includes(searchLower)
+          const matchesTags = task.tags.some(tag => tag.toLowerCase().includes(searchLower))
+          if (!matchesTitle && !matchesContent && !matchesTags) {
+            return false
+          }
+        }
+
+        // Type filter
+        if (filterType !== 'all' && task.task_type !== filterType) {
           return false
         }
-      }
-      
-      return true
-    })
-    .sort((a, b) => {
-      let aValue: any, bValue: any
-      
-      switch (sortField) {
-        case 'title':
-          aValue = a.title.toLowerCase()
-          bValue = b.title.toLowerCase()
-          break
-        case 'due_date':
-          aValue = a.due_date ? new Date(a.due_date) : new Date('9999-12-31')
-          bValue = b.due_date ? new Date(b.due_date) : new Date('9999-12-31')
-          break
-        case 'priority':
-          aValue = a.priority
-          bValue = b.priority
-          break
-        case 'created_at':
-          aValue = new Date(a.created_at)
-          bValue = new Date(b.created_at)
-          break
-        case 'updated_at':
-          aValue = new Date(a.updated_at)
-          bValue = new Date(b.updated_at)
-          break
-        default:
-          return 0
-      }
-      
-      if (sortDirection === 'asc') {
-        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0
-      } else {
-        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0
-      }
-    })
 
-  // Group tasks for grouped view
-  const groupedTasks = viewMode === 'grouped' ? filteredAndSortedTasks.reduce((groups, task) => {
-    const key = task.task_type || 'todo'
-    if (!groups[key]) {
-      groups[key] = []
-    }
-    groups[key].push(task)
-    return groups
-  }, {} as Record<string, Task[]>) : {}
+        // Status filter
+        if (filterStatus !== 'all' && task.status !== filterStatus) {
+          return false
+        }
 
-  const toggleSort = (field: SortField) => {
+        // Priority filter
+        if (filterPriority !== 'all') {
+          const priorityLevel = task.priority <= 3 ? 'low' : task.priority <= 7 ? 'medium' : 'high'
+          if (priorityLevel !== filterPriority) {
+            return false
+          }
+        }
+
+        return true
+      })
+      .sort((a, b) => {
+        let aValue: string | number | Date
+        let bValue: string | number | Date
+
+        switch (sortField) {
+          case 'title':
+            aValue = a.title.toLowerCase()
+            bValue = b.title.toLowerCase()
+            break
+          case 'due_date':
+            aValue = a.due_date ? new Date(a.due_date).getTime() : Number.MAX_SAFE_INTEGER
+            bValue = b.due_date ? new Date(b.due_date).getTime() : Number.MAX_SAFE_INTEGER
+            break
+          case 'priority':
+            aValue = a.priority
+            bValue = b.priority
+            break
+          case 'created_at':
+            aValue = new Date(a.created_at).getTime()
+            bValue = new Date(b.created_at).getTime()
+            break
+          case 'updated_at':
+            aValue = new Date(a.updated_at).getTime()
+            bValue = new Date(b.updated_at).getTime()
+            break
+          default:
+            return 0
+        }
+
+        if (sortDirection === 'asc') {
+          return aValue < bValue ? -1 : aValue > bValue ? 1 : 0
+        } else {
+          return aValue > bValue ? -1 : aValue < bValue ? 1 : 0
+        }
+      })
+  }, [tasks, searchQuery, filterType, filterStatus, filterPriority, sortField, sortDirection])
+
+  // Memoized grouped tasks - only compute when needed
+  const groupedTasks = useMemo(() => {
+    if (viewMode !== 'grouped') return {}
+
+    return filteredAndSortedTasks.reduce((groups, task) => {
+      const key = task.task_type || 'todo'
+      if (!groups[key]) {
+        groups[key] = []
+      }
+      groups[key].push(task)
+      return groups
+    }, {} as Record<string, Task[]>)
+  }, [filteredAndSortedTasks, viewMode])
+
+  // Memoized callbacks to prevent unnecessary re-renders
+  const toggleSort = useCallback((field: SortField) => {
     if (sortField === field) {
       setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
     } else {
       setSortField(field)
       setSortDirection('asc')
     }
-  }
+  }, [sortField])
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setSearchQuery('')
     setFilterType('all')
     setFilterStatus('all')
     setFilterPriority('all')
-  }
+  }, [])
 
-  const activeFilterCount = [
-    searchQuery !== '',
-    filterType !== 'all',
-    filterStatus !== 'all', 
-    filterPriority !== 'all'
-  ].filter(Boolean).length
+  // Memoized active filter count
+  const activeFilterCount = useMemo(() => {
+    return [
+      searchQuery !== '',
+      filterType !== 'all',
+      filterStatus !== 'all',
+      filterPriority !== 'all'
+    ].filter(Boolean).length
+  }, [searchQuery, filterType, filterStatus, filterPriority])
 
   if (isLoading) {
     return (
@@ -461,7 +477,7 @@ export function TaskList({}: TaskListProps = {}) {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Task Type</label>
-              <Select value={filterType} onValueChange={(value: any) => setFilterType(value)}>
+              <Select value={filterType} onValueChange={(value) => setFilterType(value as TaskType | 'all')}>
                 <SelectTrigger className="h-8">
                   <SelectValue />
                 </SelectTrigger>
@@ -477,7 +493,7 @@ export function TaskList({}: TaskListProps = {}) {
             
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Status</label>
-              <Select value={filterStatus} onValueChange={(value: any) => setFilterStatus(value)}>
+              <Select value={filterStatus} onValueChange={(value) => setFilterStatus(value as TaskStatus | 'all')}>
                 <SelectTrigger className="h-8">
                   <SelectValue />
                 </SelectTrigger>
@@ -492,7 +508,7 @@ export function TaskList({}: TaskListProps = {}) {
             
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Priority</label>
-              <Select value={filterPriority} onValueChange={(value: any) => setFilterPriority(value)}>
+              <Select value={filterPriority} onValueChange={(value) => setFilterPriority(value as 'high' | 'medium' | 'low' | 'all')}>
                 <SelectTrigger className="h-8">
                   <SelectValue />
                 </SelectTrigger>
@@ -507,7 +523,7 @@ export function TaskList({}: TaskListProps = {}) {
             
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Sort By</label>
-              <Select value={sortField} onValueChange={(value: any) => setSortField(value)}>
+              <Select value={sortField} onValueChange={(value) => setSortField(value as SortField)}>
                 <SelectTrigger className="h-8">
                   <SelectValue />
                 </SelectTrigger>

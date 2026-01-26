@@ -4,6 +4,21 @@ import { AgentInteractRequest, AgentInteractResponse, AgentContextState } from '
 import { v4 as uuidv4 } from 'uuid'
 
 /**
+ * Type for extracted task data from LLM
+ */
+interface ExtractedTaskData {
+  title: string
+  node_type?: 'container' | 'item'
+  category?: string
+  parent_id?: string | null
+  content?: string | null
+  manual_priority?: number | null
+  due_date?: string | null
+  duration_minutes?: number | null
+  tags?: string[]
+}
+
+/**
  * POST /api/agent/interact
  *
  * Stateful agent interaction endpoint.
@@ -27,9 +42,12 @@ import { v4 as uuidv4 } from 'uuid'
 export async function POST(request: NextRequest) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
+    // Require authentication - no fallback to shared UUID
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json() as AgentInteractRequest
     const { input, threadId, clientState } = body
@@ -78,11 +96,11 @@ export async function POST(request: NextRequest) {
 
     // Dynamically import the stateful agent (client-side code)
     // For server-side, we'll use a simplified version
-    const response = await processAgentRequest(input, currentThreadId, contextState, userId, supabase)
+    const response = await processAgentRequest(input, currentThreadId, contextState, user.id, supabase)
 
     // Log this interaction
     const logData = {
-      user_id: userId,
+      user_id: user.id,
       thread_id: currentThreadId,
       turn_index: turnIndex,
       user_input: input,
@@ -247,7 +265,7 @@ Return ONLY JSON:
       })
     })
 
-    let extractedData: any = { title: input.substring(0, 100), category: 'todo' }
+    let extractedData: ExtractedTaskData = { title: input.substring(0, 100), category: 'todo' }
 
     if (extractResponse.ok) {
       const extractResult = await extractResponse.json()
@@ -300,10 +318,13 @@ Return ONLY JSON:
     }
 
     // Helper to sanitize LLM output - convert "null" strings to actual null
-    const sanitize = (val: any) => (val === 'null' || val === '' || val === undefined) ? null : val
-    const sanitizeNum = (val: any) => {
+    const sanitize = (val: unknown): string | null => {
       if (val === 'null' || val === '' || val === undefined || val === null) return null
-      const num = parseInt(val, 10)
+      return typeof val === 'string' ? val : String(val)
+    }
+    const sanitizeNum = (val: unknown): number | null => {
+      if (val === 'null' || val === '' || val === undefined || val === null) return null
+      const num = typeof val === 'number' ? val : parseInt(String(val), 10)
       return isNaN(num) ? null : num
     }
 
@@ -368,16 +389,12 @@ async function handleSlotFillingServer(
   containers: Array<{ id: string; title: string; category: string }>
 ): Promise<AgentInteractResponse> {
   // Merge user input with partial data
-  const mergedData = { ...state.partialData }
+  const mergedData: Record<string, unknown> = { ...state.partialData }
 
   // Simple slot filling: assume input is the value for the first missing field
   if (state.missingFields && state.missingFields.length > 0) {
     const field = state.missingFields[0]
-    if (field === 'title') {
-      mergedData.title = input.trim()
-    } else {
-      (mergedData as any)[field] = input.trim()
-    }
+    mergedData[field] = input.trim()
   }
 
   // Check if we still have missing fields
@@ -398,18 +415,18 @@ async function handleSlotFillingServer(
 
   // All data collected - create the task
   const nodeType = state.pendingIntent === 'CREATE_CONTAINER' ? 'container' : 'item'
-  const category = (mergedData as any).category || 'todo'
+  const category = (typeof mergedData.category === 'string' ? mergedData.category : 'todo')
 
   const taskData = {
     user_id: userId,
-    title: (mergedData as any).title || 'Untitled Task',
-    content: (mergedData as any).content || null,
+    title: (typeof mergedData.title === 'string' ? mergedData.title : 'Untitled Task'),
+    content: (typeof mergedData.content === 'string' ? mergedData.content : null),
     status: 'pending',
     priority: 5,
-    manual_priority: (mergedData as any).manual_priority || 0,
-    due_date: (mergedData as any).due_date || null,
-    tags: (mergedData as any).tags || [],
-    parent_id: (mergedData as any).parent_id || null,
+    manual_priority: (typeof mergedData.manual_priority === 'number' ? mergedData.manual_priority : 0),
+    due_date: (typeof mergedData.due_date === 'string' ? mergedData.due_date : null),
+    tags: (Array.isArray(mergedData.tags) ? mergedData.tags : []),
+    parent_id: (typeof mergedData.parent_id === 'string' ? mergedData.parent_id : null),
     task_type: category === 'course' ? 'course' : category === 'project' ? 'project' : 'todo',
     type_metadata: {},
     node_type: nodeType,
@@ -447,9 +464,12 @@ async function handleSlotFillingServer(
 export async function GET(request: NextRequest) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
+    // Require authentication - no fallback to shared UUID
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const { searchParams } = new URL(request.url)
     const threadId = searchParams.get('threadId')

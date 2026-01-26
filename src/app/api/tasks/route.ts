@@ -9,14 +9,17 @@ export async function GET(request: NextRequest) {
     const supabase = createRouteHandlerSupabaseClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    // Allow local-user for single-user mode (use deterministic UUID)
-    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
+    // Require authentication - no fallback to shared UUID
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
     const task_type = searchParams.get('task_type')
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = parseInt(searchParams.get('offset') || '0')
+    // Enforce pagination bounds to prevent memory exhaustion
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50'), 1), 100)
+    const offset = Math.max(parseInt(searchParams.get('offset') || '0'), 0)
     const search = searchParams.get('search')
     // v3.0 Graph filters
     const node_type = searchParams.get('node_type')
@@ -28,11 +31,7 @@ export async function GET(request: NextRequest) {
       .from('tasks')
       .select('*')
       .is('deleted_at', null)
-
-    // Only filter by user_id if authenticated
-    if (user?.id) {
-      query = query.eq('user_id', user.id)
-    }
+      .eq('user_id', user.id)
 
     // Sort order
     if (sort_by === 'computed_priority') {
@@ -42,6 +41,13 @@ export async function GET(request: NextRequest) {
     }
 
     query = query.range(offset, offset + limit - 1)
+
+    // Get total count for pagination
+    const { count } = await supabase
+      .from('tasks')
+      .select('*', { count: 'exact', head: true })
+      .is('deleted_at', null)
+      .eq('user_id', user.id)
 
     // Status filter (supports comma-separated values)
     if (status) {
@@ -81,7 +87,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch tasks' }, { status: 500 })
     }
 
-    return NextResponse.json({ tasks })
+    return NextResponse.json({
+      tasks,
+      pagination: {
+        limit,
+        offset,
+        total: count || 0,
+        hasMore: (offset + limit) < (count || 0)
+      }
+    })
   } catch (error) {
     console.error('API error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
@@ -93,8 +107,10 @@ export async function POST(request: NextRequest) {
     const supabase = createRouteHandlerSupabaseClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    // Allow local-user for single-user mode (use deterministic UUID)
-    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
+    // Require authentication - no fallback to shared UUID
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json()
     const {
@@ -144,7 +160,7 @@ export async function POST(request: NextRequest) {
     }
 
     const taskData: TaskInsert = {
-      user_id: userId,
+      user_id: user.id,
       title,
       content: content || null,
       rich_content: rich_content || null,

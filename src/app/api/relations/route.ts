@@ -4,9 +4,12 @@ import { createRouteHandlerSupabaseClient } from '@/lib/supabase/server'
 export async function GET(request: NextRequest) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    const userId = user?.id || 'local-user'
+    // Require authentication - no fallback to shared user
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const { searchParams } = new URL(request.url)
     const task_id = searchParams.get('task_id')
@@ -47,9 +50,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    const userId = user?.id || 'local-user'
+    // Require authentication - no fallback to shared user
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json()
     const { predecessor_id, successor_id, relation_type } = body
@@ -70,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     const relationData = {
-      user_id: userId,
+      user_id: user.id,
       predecessor_id,
       successor_id,
       relation_type: relation_type || 'blocks',

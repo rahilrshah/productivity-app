@@ -1,6 +1,15 @@
 // Re-export all graph types for v3.0 architecture
 export * from './graph'
 
+// Re-export sync types
+export * from './sync'
+
+// Re-export schema types
+export * from './schema'
+
+// Re-export agent types
+export * from './agent'
+
 export interface User {
   id: string
   email: string

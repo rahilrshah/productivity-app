@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerSupabaseClient } from '@/lib/supabase/server'
 
+// Maximum number of sync records to return per request
+const MAX_SYNC_RECORDS = 100
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
@@ -18,12 +21,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'device_id is required' }, { status: 400 })
     }
 
+    // Validate deviceId format
+    if (deviceId.length > 100) {
+      return NextResponse.json({ error: 'Invalid device_id' }, { status: 400 })
+    }
+
     let query = supabase
       .from('sync_log')
       .select('*')
       .eq('user_id', user.id)
       .neq('device_id', deviceId) // Don't sync back our own changes
       .order('synced_at', { ascending: true })
+      .limit(MAX_SYNC_RECORDS) // Prevent memory exhaustion
 
     if (since) {
       query = query.gte('synced_at', since)
@@ -70,9 +79,14 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({ 
+    // Check if there are more records to fetch
+    const hasMore = (syncLogs?.length || 0) === MAX_SYNC_RECORDS
+
+    return NextResponse.json({
       changes: resolvedChanges,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      hasMore,
+      limit: MAX_SYNC_RECORDS
     })
   } catch (error) {
     console.error('API error:', error)

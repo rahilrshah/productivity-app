@@ -27,9 +27,12 @@ import { createRouteHandlerSupabaseClient } from '@/lib/supabase/server'
 export async function GET(request: NextRequest) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
+    // Require authentication - no fallback to shared UUID
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const { searchParams } = new URL(request.url)
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100)
@@ -40,7 +43,7 @@ export async function GET(request: NextRequest) {
     const { data: threadData, error } = await supabase
       .from('agent_logs')
       .select('thread_id, user_input, created_at, turn_index')
-      .eq('user_id', userId)
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -110,9 +113,12 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const supabase = createRouteHandlerSupabaseClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    const userId = user?.id || '00000000-0000-0000-0000-000000000000'
+    // Require authentication - no fallback to shared UUID
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json()
     const { threadId } = body
@@ -129,7 +135,7 @@ export async function DELETE(request: NextRequest) {
       .from('agent_logs')
       .delete()
       .eq('thread_id', threadId)
-      .eq('user_id', userId)
+      .eq('user_id', user.id)
 
     if (error) {
       console.error('Error deleting thread:', error)

@@ -28,6 +28,46 @@ jest.mock('next/router', () => ({
   },
 }))
 
+// Mock @supabase/auth-helpers-nextjs to avoid ESM issues
+jest.mock('@supabase/auth-helpers-nextjs', () => ({
+  createClientComponentClient: jest.fn(() => ({
+    auth: {
+      getUser: jest.fn(() => Promise.resolve({ data: { user: null }, error: null })),
+      getSession: jest.fn(() => Promise.resolve({ data: { session: null }, error: null })),
+      signInWithPassword: jest.fn(() => Promise.resolve({ data: {}, error: null })),
+      signUp: jest.fn(() => Promise.resolve({ data: {}, error: null })),
+      signOut: jest.fn(() => Promise.resolve({ error: null })),
+      onAuthStateChange: jest.fn(() => ({ data: { subscription: { unsubscribe: jest.fn() } } })),
+    },
+    from: jest.fn(() => ({
+      select: jest.fn(() => Promise.resolve({ data: [], error: null })),
+      insert: jest.fn(() => Promise.resolve({ data: [], error: null })),
+      update: jest.fn(() => Promise.resolve({ data: [], error: null })),
+      delete: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    })),
+  })),
+  createRouteHandlerClient: jest.fn(() => ({
+    auth: {
+      getUser: jest.fn(() => Promise.resolve({ data: { user: null }, error: null })),
+    },
+    from: jest.fn(() => ({
+      select: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    })),
+  })),
+}))
+
+// Mock auth service
+jest.mock('@/lib/auth', () => ({
+  authService: {
+    getState: jest.fn(() => ({ user: { id: 'test-user-id' }, isLoading: false })),
+    signIn: jest.fn(() => Promise.resolve({ success: true })),
+    signUp: jest.fn(() => Promise.resolve({ success: true })),
+    signOut: jest.fn(() => Promise.resolve({ success: true })),
+    initialize: jest.fn(() => Promise.resolve()),
+    refreshSession: jest.fn(() => Promise.resolve()),
+  },
+}))
+
 // Mock Supabase
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn(() => ({
